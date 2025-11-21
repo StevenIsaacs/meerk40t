@@ -254,17 +254,6 @@ REPLY_LABEL_LUT = {
 }
 
 
-STATUS_ADDRESSES = (
-    MEM_CARD_ID,
-    MEM_MACHINE_STATUS,
-    MEM_BED_SIZE_X,
-    MEM_BED_SIZE_Y,
-    MEM_CURRENT_X,
-    MEM_CURRENT_Y,
-#    MEM_CURRENT_Z,
-#    MEM_CURRENT_U,
-    )
-
 def encode_switch(state):
     assert state == 0 or state == 1
     return bytes([state])
@@ -538,6 +527,8 @@ class RDJob:
         self.time_started = None
         self.runtime = 0
         self.label = f"RuidaJob-{self.time_submitted:.2f}"
+        self.low_power_warning = False
+        self.high_power_warning = False
 
         self._stopped = True
         self.enabled = True
@@ -1344,7 +1335,7 @@ class RDJob:
         _mem = None
         _v = None
         _decoded = None
-        if reply[0] == 0xDA:
+        if len(reply) > 0 and reply[0] == 0xDA:
             if reply[1] == 0x01: # Response to command 0xDA 0x00.
                 _mem = reply[2:4]
                 if _mem == MEM_CARD_ID:
@@ -1409,6 +1400,9 @@ class RDJob:
     def write_header(self, data):
         if not data:
             return
+
+        self.low_power_warning = False
+        self.high_power_warning = False
         self.first_layer = True
         # Optional: Set Tick count.
         self.ref_point_2()  # abs_pos
@@ -1599,6 +1593,11 @@ class RDJob:
             return
         self.cut_rel_xy(dx, dy)
 
+    def _power(self, power):
+        self.high_power_warning  = (power > 70.0)
+        self.low_power_warning  = (power < 10.0)
+        return encode_power(power)
+
     #######################
     # Specific Commands
     #######################
@@ -1640,52 +1639,52 @@ class RDJob:
         self(CUT_REL_Y, encode_relcoord(dy), output=output)
 
     def imd_power_1(self, power, output=None):
-        self(IMD_POWER_1, encode_power(power), output=output)
+        self(IMD_POWER_1, self._power(power), output=output)
 
     def imd_power_2(self, power, output=None):
-        self(IMD_POWER_2, encode_power(power), output=output)
+        self(IMD_POWER_2, self._power(power), output=output)
 
     def imd_power_3(self, power, output=None):
-        self(IMD_POWER_3, encode_power(power), output=output)
+        self(IMD_POWER_3, self._power(power), output=output)
 
     def imd_power_4(self, power, output=None):
-        self(IMD_POWER_4, encode_power(power), output=output)
+        self(IMD_POWER_4, self._power(power), output=output)
 
     def end_power_1(self, power, output=None):
-        self(END_POWER_1, encode_power(power), output=output)
+        self(END_POWER_1, self._power(power), output=output)
 
     def end_power_2(self, power, output=None):
-        self(END_POWER_2, encode_power(power), output=output)
+        self(END_POWER_2, self._power(power), output=output)
 
     def end_power_3(self, power, output=None):
-        self(END_POWER_3, encode_power(power), output=output)
+        self(END_POWER_3, self._power(power), output=output)
 
     def end_power_4(self, power, output=None):
-        self(END_POWER_4, encode_power(power), output=output)
+        self(END_POWER_4, self._power(power), output=output)
 
     def min_power_1(self, power, output=None):
-        self(MIN_POWER_1, encode_power(power), output=output)
+        self(MIN_POWER_1, self._power(power), output=output)
 
     def max_power_1(self, power, output=None):
-        self(MAX_POWER_1, encode_power(power), output=output)
+        self(MAX_POWER_1, self._power(power), output=output)
 
     def min_power_2(self, power, output=None):
-        self(MIN_POWER_2, encode_power(power), output=output)
+        self(MIN_POWER_2, self._power(power), output=output)
 
     def max_power_2(self, power, output=None):
-        self(MAX_POWER_2, encode_power(power), output=output)
+        self(MAX_POWER_2, self._power(power), output=output)
 
     def min_power_3(self, power, output=None):
-        self(MIN_POWER_3, encode_power(power), output=output)
+        self(MIN_POWER_3, self._power(power), output=output)
 
     def max_power_3(self, power, output=None):
-        self(MAX_POWER_3, encode_power(power), output=output)
+        self(MAX_POWER_3, self._power(power), output=output)
 
     def min_power_4(self, power, output=None):
-        self(MIN_POWER_4, encode_power(power), output=output)
+        self(MIN_POWER_4, self._power(power), output=output)
 
     def max_power_4(self, power, output=None):
-        self(MAX_POWER_4, encode_power(power), output=output)
+        self(MAX_POWER_4, self._power(power), output=output)
 
     def laser_interval(self, time, output=None):
         self(LASER_INTERVAL, encode_time(time), output=output)
@@ -1706,28 +1705,28 @@ class RDJob:
         self(LASER_OFF_DELAY2, encode_time(time), output=output)
 
     def min_power_1_part(self, part, power, output=None):
-        self(MIN_POWER_1_PART, encode_part(part), encode_power(power), output=output)
+        self(MIN_POWER_1_PART, encode_part(part), self._power(power), output=output)
 
     def max_power_1_part(self, part, power, output=None):
-        self(MAX_POWER_1_PART, encode_part(part), encode_power(power), output=output)
+        self(MAX_POWER_1_PART, encode_part(part), self._power(power), output=output)
 
     def min_power_2_part(self, part, power, output=None):
-        self(MIN_POWER_2_PART, encode_part(part), encode_power(power), output=output)
+        self(MIN_POWER_2_PART, encode_part(part), self._power(power), output=output)
 
     def max_power_2_part(self, part, power, output=None):
-        self(MAX_POWER_2_PART, encode_part(part), encode_power(power), output=output)
+        self(MAX_POWER_2_PART, encode_part(part), self._power(power), output=output)
 
     def min_power_3_part(self, part, power, output=None):
-        self(MIN_POWER_3_PART, encode_part(part), encode_power(power), output=output)
+        self(MIN_POWER_3_PART, encode_part(part), self._power(power), output=output)
 
     def max_power_3_part(self, part, power, output=None):
-        self(MAX_POWER_3_PART, encode_part(part), encode_power(power), output=output)
+        self(MAX_POWER_3_PART, encode_part(part), self._power(power), output=output)
 
     def min_power_4_part(self, part, power, output=None):
-        self(MIN_POWER_4_PART, encode_part(part), encode_power(power), output=output)
+        self(MIN_POWER_4_PART, encode_part(part), self._power(power), output=output)
 
     def max_power_4_part(self, part, power, output=None):
-        self(MAX_POWER_4_PART, encode_part(part), encode_power(power), output=output)
+        self(MAX_POWER_4_PART, encode_part(part), self._power(power), output=output)
 
     def through_power_1(self, power, output=None):
         """
@@ -1737,16 +1736,16 @@ class RDJob:
         @param output:
         @return:
         """
-        self(THROUGH_POWER_1, encode_power(power), output=output)
+        self(THROUGH_POWER_1, self._power(power), output=output)
 
     def through_power_2(self, power, output=None):
-        self(THROUGH_POWER_2, encode_power(power), output=output)
+        self(THROUGH_POWER_2, self._power(power), output=output)
 
     def through_power_3(self, power, output=None):
-        self(THROUGH_POWER_3, encode_power(power), output=output)
+        self(THROUGH_POWER_3, self._power(power), output=output)
 
     def through_power_4(self, power, output=None):
-        self(THROUGH_POWER_4, encode_power(power), output=output)
+        self(THROUGH_POWER_4, self._power(power), output=output)
 
     def frequency_part(self, laser, part, frequency, output=None):
         # Disabled -- This is not necessary and the frequency was not
