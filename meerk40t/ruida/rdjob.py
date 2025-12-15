@@ -218,6 +218,9 @@ ELEMENT_ARRAY = b"\xF2\x05"  # v0(2), v1(2), v2(2), v3(2), v4(2), v5(2), v6(2)
 ELEMENT_ARRAY_ADD = b"\xF2\x06"  # abscoord(5), abscoord(5)
 ELEMENT_ARRAY_MIRROR = b"\xF2\x07"  # mirror(1)
 
+#++++
+# Memory addresses.
+#++++
 MEM_CARD_ID = b'\x05\x7E'
 CID_LUT = {
     0x65106510: 'RDC6442S'
@@ -252,7 +255,9 @@ REPLY_LABEL_LUT = {
     MEM_CURRENT_Z: 'Current Z',
     MEM_CURRENT_U: 'Current U',
 }
-
+#----
+# End memory addresses.
+#----
 
 def encode_switch(state):
     assert state == 0 or state == 1
