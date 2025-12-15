@@ -5,7 +5,7 @@ msgstr ""
 "Project-Id-Version: MeerK40t Translation Project\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 23-04-21 14:10UTC\n"
-"PO-Revision-Date: 16-11-25 16:30:00UTC\n"
+"PO-Revision-Date: 13-12-25 18:00:00UTC\n"
 "Last-Translator: Betaeta\n"
 "Language-Team: Cicioni Italian traslation <betaeta-AT-gmail.com>\n"
 "Language: it\n"
@@ -1857,11 +1857,11 @@ msgstr "Aggiunge un effetto tratteggio al processo"
 
 #: meerk40t/core/elements/element_treeops.py:2364
 msgid "Add wobble effect"
-msgstr "Aggiunge l'effetto oscillazione"
+msgstr "Aggiunge effetto wobble"
 
 #: meerk40t/core/elements/element_treeops.py:2366
 msgid "Add a wobble effect to the operation"
-msgstr "Aggiungere un effetto oscillazione al processp"
+msgstr "Aggiunge un effetto wobble (seguipercorso) al flusso di lavoro"
 
 #: meerk40t/core/elements/element_treeops.py:3283
 msgid "Add Dots"
@@ -3956,15 +3956,15 @@ msgstr "Ritardo di spegnimento del laser"
 
 #: meerk40t/device/devicechoices.py:66 meerk40t/gui/materialtest.py:909
 msgid "Wobble Radius"
-msgstr "Raggio di oscillazione"
+msgstr "Raggio del wobble"
 
 #: meerk40t/device/devicechoices.py:76 meerk40t/gui/materialtest.py:919
 msgid "Wobble Interval"
-msgstr "Intervallo di oscillazione"
+msgstr "Intervallo del wobble"
 
 #: meerk40t/gui/materialtest.py:929
 msgid "Wobble Speed Multiplier"
-msgstr "Moltiplicatore della velocità di oscillazione"
+msgstr "Moltiplicatore della velocità di wobble"
 
 #: meerk40t/gui/materialtest.py:1673 meerk40t/tools/kerftest.py:832
 msgid "This will delete all existing operations and elements"
@@ -9147,11 +9147,11 @@ msgstr "Movimenti veloci in overdrive"
 
 #: meerk40t/lihuiyu/device.py:529
 msgid "X Travel Speed:"
-msgstr "Velocità di viaggio X"
+msgstr "Velocità di avanzamento X"
 
 #: meerk40t/lihuiyu/device.py:542
 msgid "Y Travel Speed:"
-msgstr "Velocità di viaggio Y"
+msgstr "Velocità di avanzamento Y"
 
 #: meerk40t/lihuiyu/device.py:559
 msgid "Fix rated to actual speed"
@@ -12449,7 +12449,7 @@ msgstr ""
 #: meerk40t/core/elements/element_treeops.py:2925
 #: meerk40t/core/elements/element_treeops.py:2943
 msgid "Append wobble {type} {radius} @{interval}"
-msgstr "Aggiunge l'effetto oscillazione {type} {radius} @{interval}"
+msgstr "Aggiungi effetto wobble: {type} {radius} @{interval}"
 
 #: meerk40t/core/elements/element_treeops.py:2944
 msgid "Meander"
@@ -12548,23 +12548,23 @@ msgstr "Tratteggio diagonale (bidirezionale)"
 
 #: meerk40t/gui/wxmmain.py:1719
 msgid "Wobble circular (centered)"
-msgstr "Oscillazione circolare (centrato)"
+msgstr "Wobble circolare (centrato)"
 
 #: meerk40t/gui/wxmmain.py:1720
 msgid "Wobble circular (left)"
-msgstr "Oscillazione circolare (sinistra)"
+msgstr "Wobble circolare (sinistra)"
 
 #: meerk40t/gui/wxmmain.py:1721
 msgid "Wobble circular (right)"
-msgstr "Oscillazione circolare (destra)"
+msgstr "Wobble circolare (destra)"
 
 #: meerk40t/gui/wxmmain.py:1728
 msgid "Apply a wobble movement along the path"
-msgstr "Applica un movimento di oscillazione lungo il percorso"
+msgstr "Applica un movimento di wobble lungo il percorso"
 
 #: meerk40t/gui/wxmmain.py:1722
 msgid "Apply a wobble movement along the path (circular on top of the line)"
-msgstr "Segue il percorso in modo circolare (sulla linea)"
+msgstr "Segue il percorso in modo wobble (sulla linea)"
 
 #: meerk40t/gui/wxmmain.py:1723
 msgid ""
@@ -12589,15 +12589,15 @@ msgstr "Ignora i comandi di aggiornamento dello schermo"
 #: meerk40t/gui/propertypanels/warpproperty.py:55
 #: meerk40t/gui/propertypanels/wobbleproperty.py:87
 msgid "Wobble:"
-msgstr "Oscillazione:"
+msgstr "Wobble:"
 
 #: meerk40t/gui/propertypanels/wobbleproperty.py:114
 msgid "Wobble Radius:"
-msgstr "Raggio di oscillazione:"
+msgstr "Raggio wobble:"
 
 #: meerk40t/gui/propertypanels/wobbleproperty.py:128
 msgid "Wobble Interval:"
-msgstr "Intervallo di oscillazione:"
+msgstr "Intervallo wobble:"
 
 #: meerk40t/gui/propertypanels/inputproperty.py:28
 msgid "Mask Bits"
@@ -13658,7 +13658,7 @@ msgstr "Mostra etichette"
 
 #: meerk40t/gui/propertypanels/wobbleproperty.py:140
 msgid "Wobble Speed:"
-msgstr "Fattore di oscillazione"
+msgstr "Fattore wobble"
 
 #: meerk40t/core/elements/render.py:223 meerk40t/core/elements/render.py:401
 #: meerk40t/gui/propertypanels/imageproperty.py:1774
@@ -14250,9 +14250,9 @@ msgid ""
 "We intentionally ignored a request to start a job via the keyboard.\n"
 "You need to make your intent clear by a deliberate mouse-click"
 msgstr ""
-"Abbiamo intenzionalmente ignorato la richiesta di avviare un lavoro tramite "
-"la tastiera.´È necessario rendere chiaro il proprio intento con un click "
-"deliberato del mouse"
+"La richiesta di avviare un lavoro tramite la tastiera è stata "
+"intenzionalmente ignorata. È necessario rendere chiaro il proprio intento "
+"con un click deliberato del mouse"
 
 #: meerk40t/gui/materialtest.py:52 meerk40t/gui/materialtest.py:88
 msgid "Template-Name"
@@ -14414,19 +14414,16 @@ msgstr "Visualizza l'etichetta all'interno dell'oggetto"
 #: meerk40t/gui/propertypanels/wobbleproperty.py:175
 msgid "Segmentation size, the wobble pattern will be applied at every segment"
 msgstr ""
-"Dimensione della segmentazione, il modello di oscillazione verrà applicato "
-"ad ogni segmento"
+"Dimensione della segmentazione, il motivo wobble viene impostato in ogni "
+"punto del segmento"
 
 #: meerk40t/gui/propertypanels/wobbleproperty.py:178
 msgid "Wobble size, does influence the size of the wobble pattern"
-msgstr ""
-"La dimensione dell'oscillazione, influenza la dimensione del modello di "
-"oscillazione"
+msgstr "Dimensione del wobble, influisce sulla grandezza del motivo wobble"
 
 #: meerk40t/gui/propertypanels/wobbleproperty.py:181
 msgid "How quickly does the wobble pattern revolve around the path"
-msgstr ""
-"Velocità con cui il modello di oscillazione deve spostarsi sul percorso"
+msgstr "Con quale velocità deve muoversi il motivo wobble lungo il percorso"
 
 #: meerk40t/gui/propertypanels/wobbleproperty.py:183
 msgid "The wobble pattern to be applied"
@@ -14526,11 +14523,11 @@ msgstr "Modifica dell'angolo di tratteggio standard"
 
 #: meerk40t/device/devicechoices.py:67
 msgid "Default Wobble Radius"
-msgstr "Raggio oscillazione standard"
+msgstr "Raggio wobble standard"
 
 #: meerk40t/device/devicechoices.py:77
 msgid "Default Wobble Interval"
-msgstr "Intervallo oscillazione standard"
+msgstr "Intervallo wobble standard"
 
 #: meerk40t/camera/gui/camerapanel.py:625
 msgid "Device independent"
@@ -15411,8 +15408,8 @@ msgstr "(Non visualizza l'icona dell'avviso)"
 #: meerk40t/gui/gui_mixins.py:350 meerk40t/gui/plugin.py:294
 msgid "Critical: might damage your laser (e.g. laserhead bumping into rail)"
 msgstr ""
-"Critico: potrebbe danneggiare il laser (ad esempio, la testa del laser che "
-"urta la guida)"
+"Critico: potrebbe danneggiare il laser (ad esempio, la testa del laser urta "
+"i bordi)"
 
 #: meerk40t/gui/gui_mixins.py:351 meerk40t/gui/plugin.py:298
 msgid "Normal: might ruin your burn (e.g. unassigned=unburnt elements)"
@@ -15741,7 +15738,7 @@ msgstr ""
 
 #: meerk40t/core/elements/element_treeops.py:1982
 msgid "Recreate cutcode from the binary object"
-msgstr "Ricreare il Cutcod dall'oggetto binario"
+msgstr "Ricreare il Cutcode dall'oggetto binario"
 
 #: meerk40t/core/elements/element_treeops.py:1991
 msgid "Recreate a path element from the selected cutcode"
@@ -15841,7 +15838,7 @@ msgstr "Applica la distorsione"
 
 #: meerk40t/core/elements/element_treeops.py:2871
 msgid "Apply wobble"
-msgstr "Applica l'oscillazione"
+msgstr "Applica wobble"
 
 #: meerk40t/core/elements/element_treeops.py:2893
 #: meerk40t/core/elements/element_treeops.py:2911
@@ -17989,7 +17986,7 @@ msgstr "Spostamento"
 #: meerk40t/gui/materialtest.py:241 meerk40t/gui/materialtest.py:1446
 #: meerk40t/gui/propertypanels/wobbleproperty.py:40
 msgid "Wobble"
-msgstr "Oscillazione"
+msgstr "Wobble"
 
 #: meerk40t/gui/materialtest.py:336 meerk40t/gui/materialtest.py:359
 msgid "Pick values"
@@ -17997,7 +17994,7 @@ msgstr "Seleziona i valori"
 
 #: meerk40t/device/devicechoices.py:46 meerk40t/gui/materialtest.py:942
 msgid "Wobble Type"
-msgstr "Tipo di oscillazione"
+msgstr "Tipo di wobble"
 
 #: meerk40t/gui/wxutils.py:1720
 msgid "Check all"
@@ -20085,7 +20082,7 @@ msgstr "aggiunge l'effetto tratteggio alla scena"
 
 #: meerk40t/core/elements/shapes.py:509
 msgid "adds wobble-effect to selected elements"
-msgstr "aggiunge l'effetto oscillazione all'elemento selezionato"
+msgstr "aggiunge l'effetto wobble all'elemento selezionato"
 
 #: meerk40t/core/elements/shapes.py:578
 msgid "font size to for object"
@@ -23738,11 +23735,11 @@ msgstr "Tipo di Oscillazione Predefinito"
 
 #: meerk40t/device/devicechoices.py:56
 msgid "Wobble Speed"
-msgstr "Velocità di Oscillazione"
+msgstr "Velocità di wobble"
 
 #: meerk40t/device/devicechoices.py:57
 msgid "Default Wobble Speed"
-msgstr "Velocità di Oscillazione Predefinita"
+msgstr "Velocità di wobble Predefinita"
 
 #: meerk40t/device/devicechoices.py:115
 msgid "Default power for {op}"
@@ -24098,17 +24095,17 @@ msgstr "Ottimizzazione"
 
 #: meerk40t/core/elements/element_treeops.py:3220
 msgid "Reduce travel moves"
-msgstr "Riduci movimenti di viaggio"
+msgstr "ridurre i percorsi di lavorazione"
 
 #: meerk40t/core/elements/element_treeops.py:3222
 msgid "Rearrange items within operation to reduce travel moves"
 msgstr ""
-"Riorganizza gli elementi all'interno dell'operazione per ridurre i movimenti"
-" di viaggio"
+"riordinare gli elementi all'interno dell'operazione per minimizzare i "
+"percorsi di lavorazione"
 
 #: meerk40t/core/elements/element_treeops.py:3226
 msgid "Optimize travel moves"
-msgstr "Ottimizza movimenti di viaggio"
+msgstr "Ottimizzare i percorsi di lavorazione"
 
 #: meerk40t/core/elements/manual_optimize.py:82
 msgid "Provide detailed debug output"
@@ -24196,9 +24193,10 @@ msgid ""
 "Notabene: When using both Reduce Travel Time and Burn Inner First, travel "
 "optimization occurs within each hierarchy level (inners before outers)."
 msgstr ""
-"Nota: Quando si utilizzano sia 'Riduci tempo di viaggio' che 'Brucia interno"
-" prima', l'ottimizzazione del viaggio avviene all'interno di ogni livello "
-"gerarchico (interni prima degli esterni)."
+"Nota bene: se si utilizzano contemporaneamente 'riduci i tempi di "
+"spostamento' e 'lavora prima gli interni', l'ottimizzazione dei percorsi "
+"avviene all'interno di ciascun livello gerarchico (interni prima degli "
+"esterni)."
 
 #: meerk40t/core/elements/element_treeops.py:2494
 msgid "Append Physical Home"
@@ -25106,3 +25104,25 @@ msgstr ""
 "Su Linux questo è \"/dev/<dev>\"\n"
 "Questo permette l'uso di collegamenti simbolici tramite regole UDEV.\n"
 "Su Windows questo è \"COM<n>\""
+
+#: meerk40t/core/elements/offset_mk.py:2334
+msgid "offset distance (positive expands CW path, negative shrinks)"
+msgstr ""
+"distanza di offset (valore positivo espande il percorso in senso orario, "
+"negativo lo riduce)"
+
+#: meerk40t/core/elements/offset_mk.py:2337
+msgid "uniform interpolation per segment (simple)"
+msgstr "interpolazione uniforme per segmento (semplice)"
+
+#: meerk40t/core/elements/offset_mk.py:2340
+msgid "maximum miter length factor (auto if omitted)"
+msgstr "fattore massimo della lunghezza dello smusso (automatico se omesso)"
+
+#: meerk40t/core/elements/offset_mk.py:2343
+msgid "self-intersection check window (default 100)"
+msgstr "finestra di controllo auto-intersezione (predefinito 100)"
+
+#: meerk40t/core/elements/offset_mk.py:2347
+msgid "create an offset path using simplified fast algorithm"
+msgstr "crea un percorso offset usando un algoritmo semplificato e veloce"
