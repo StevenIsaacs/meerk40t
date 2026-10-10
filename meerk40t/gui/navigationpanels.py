@@ -60,6 +60,7 @@ from meerk40t.gui.wxutils import (
     wxBitmapButton,
     wxStaticBitmap,
     wxStaticText,
+    dispatch_to_main_thread,
 )
 from meerk40t.kernel import signal_listener
 
@@ -229,6 +230,28 @@ def register_panel_navigation(window, context):
 
     window.on_pane_create(pane)
     context.register("pane/jogdist", pane)
+
+
+def _confined_disable_warning(parent):
+    """Ask before allowing jogs outside the configured bed size."""
+    dlg = wx.MessageDialog(
+        parent,
+        _(
+            "Turning this off allows the laser to be jogged outside the bed size "
+            "set under Device settings.\n\n"
+            "On GRBL controllers this can send moves past $130/$131 max travel, "
+            "trigger alarms, or stress stepper drivers — for example when jogging "
+            "to a mechanical limit.\n\n"
+            "Only disable if you are sure about the safe travel area. Keep bed "
+            "size and $130/$131 correct on the board."
+        ),
+        _("Disable bed movement limit?"),
+        wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+    )
+    try:
+        return dlg.ShowModal() == wx.ID_YES
+    finally:
+        dlg.Destroy()
 
 
 def get_movement(context, dx, dy):
@@ -480,13 +503,13 @@ class ZMovePanel(wx.Panel):
 
     def z_move_down(self, distance):
         def handler():
-            self.context(f"z_move -{distance*0.1:.2f}mm")
+            self.context(f"z_move -{distance * 0.1:.2f}mm")
 
         return handler
 
     def z_move_up(self, distance):
         def handler():
-            self.context(f"z_move {distance*0.1:.2f}mm")
+            self.context(f"z_move {distance * 0.1:.2f}mm")
 
         return handler
 
@@ -514,6 +537,7 @@ class ZMovePanel(wx.Panel):
         self.navigation_sizer.Layout()
         self.Layout()
 
+    @dispatch_to_main_thread
     def on_update(self, origin, *args):
         has_home = self.context.kernel.has_command("z_home")
         # print (f"Has_home for {self.context.device.name}: {has_home}")
@@ -1055,6 +1079,7 @@ class Drag(wx.Panel):
     def on_button_repeat(self, origin, *args):
         self.set_timer_options()
 
+    @dispatch_to_main_thread
     def on_update(self, origin, pos):
         # bb = self.get_bbox()
         elements = self.context.elements
@@ -1163,6 +1188,8 @@ class Jog(wx.Panel):
         )
         self.Bind(wx.EVT_BUTTON, self.on_button_confinement, self.button_confine)
         # end wxGlade
+        self.context.confined = True
+        self.is_confined = True
 
     def __set_properties(self):
         # begin wxGlade: Jog.__set_properties
@@ -1365,8 +1392,8 @@ class Jog(wx.Panel):
         except AttributeError:
             value = False
 
-        self.context.confined = value
-        if value == 0:
+        self.context.confined = bool(value)
+        if not value:
             self.button_confine.SetBitmap(
                 icon_fence_open.GetBitmap(
                     resize=self.resize_factor, resolution=self.resolution
@@ -1386,13 +1413,18 @@ class Jog(wx.Panel):
             # self.context("confine 1")
 
     def on_button_confinement(self, event=None):  # wxGlade: Navigation.<event_handler>
-        self.is_confined = not self.is_confined
+        if self.context.confined:
+            if not _confined_disable_warning(self):
+                return
+            self.is_confined = False
+        else:
+            self.is_confined = True
         try:
             current_x, current_y = self.context.device.current
         except AttributeError:
             self.is_confined = False
             return
-        if not self.is_confined:
+        if not self.context.confined:
             return
         min_x = 0
         max_x = float(Length(self.context.device.view.width))
@@ -1420,7 +1452,11 @@ class Jog(wx.Panel):
     def on_button_navigate_home(
         self, event=None
     ):  # wxGlade: Navigation.<event_handler>
-        self.context(".home\n")
+        device = self.context.device
+        if getattr(device, "has_endstops", False):
+            self.context("physical_home\n")
+        else:
+            self.context(".home\n")
 
     def on_button_navigate_physical_home(self, event=None):
         physical = False
@@ -1455,6 +1491,7 @@ class Jog(wx.Panel):
                 break
         self.button_navigate_home.SetToolTip(tip)
 
+    @dispatch_to_main_thread
     def on_update(self, origin, *args):
         self.set_home_logic()
         self.set_z_support()
@@ -1760,6 +1797,7 @@ class MovePanel(wx.Panel):
         except ValueError:
             return
 
+    @dispatch_to_main_thread
     def update_position_info(self, origin, pos):
         # origin, pos
 
@@ -1903,6 +1941,7 @@ class PulsePanel(wx.Panel):
     def pane_hide(self, *args):
         self.context.unlisten("activate;device", self.on_update)
 
+    @dispatch_to_main_thread
     def on_update(self, origin, *args):
         self.update_power_controls()
 
@@ -1918,7 +1957,7 @@ class PulsePanel(wx.Panel):
             dval = 50
         self.spin_pulse_duration.SetValue(dval)
         if self.context.device.setting(bool, "use_percent_for_power_display", False):
-            self.text_power.SetValue(f"{pval/10.0:.1f}")
+            self.text_power.SetValue(f"{pval / 10.0:.1f}")
             self.text_power.set_range(0, 100)
             self.text_power.SetToolTip(_("Set the power of the laser pulse in percent"))
             self.label_power.SetLabel("%")

@@ -103,6 +103,8 @@ and a wxpython version <= 4.1.1."""
         ]
         kernel.register_choices("units", choices)
     elif lifecycle == "postboot":
+        kernel.root.setting(bool, "confined", True)
+        kernel.root.confined = True
         choices = [
             {
                 "attr": "supress_non_visible",
@@ -259,6 +261,40 @@ and a wxpython version <= 4.1.1."""
                 "signals": "restart",
             },
             {
+                "attr": "ribbon_tooltip_delay_ms",
+                "object": kernel.root,
+                "default": 2000,
+                "type": int,
+                "style": "flat",
+                "label": _("Ribbon: hover before description"),
+                "trailer": "ms",
+                "tip": _(
+                    "How long to hover over a ribbon toolbar button before its "
+                    "tooltip appears. The tooltip combines the short hint and any "
+                    "extended help text for that button. Other windows still use "
+                    "'ToolTip delay' below."
+                ),
+                "page": "Gui",
+                "section": "Tooltips",
+            },
+            {
+                "attr": "ribbon_verbose_hover_help",
+                "object": kernel.root,
+                "default": True,
+                "type": bool,
+                "label": _("Long UI descriptions (ribbon + menus)"),
+                "tip": _(
+                    "When enabled, ribbon toolbar buttons use the ribbon hover delay and "
+                    "may show extended help in the tooltip. Tree and scene context menus "
+                    "use the same flag: menu entries show full help text in the status bar "
+                    "while you highlight them, and may use the function docstring if no "
+                    "help was defined. Also toggled from Panes → Help. When disabled, "
+                    "ribbon tooltips match the normal ToolTip delay and show only the short hint."
+                ),
+                "page": "Gui",
+                "section": "Tooltips",
+            },
+            {
                 "attr": "tooltip_autopop",
                 "object": kernel.root,
                 "default": 10000,
@@ -307,6 +343,21 @@ and a wxpython version <= 4.1.1."""
                 "signals": ("icons", "warn_state_update"),
             },
         ]
+        if platform.system() == "Linux":
+            choices.append(
+                {
+                    "attr": "suppress_sudo_warning",
+                    "object": kernel.root,
+                    "default": False,
+                    "type": bool,
+                    "label": _("Suppress sudo/admin warning"),
+                    "tip": _("Don't show the warning when running MeerK40t as root/admin on Linux"),
+                    "page": "Gui",
+                    # Hint for translation _("General")
+                    "section": "General",
+                }
+            )
+            
         kernel.register_choices("preferences", choices)
 
     elif lifecycle == "mainloop":
@@ -445,6 +496,112 @@ and a wxpython version <= 4.1.1."""
             else:
                 wx.CallAfter(message_dialog, None)
             lock.acquire(True)
+
+        @kernel.console_command(
+            "cache_stats",
+            help=_("Display layer cache statistics"),
+            hidden=True,
+        )
+        def cache_stats_cmd(command, channel, _, **kwargs):
+            """Show cache hit/miss statistics for the scene layer cache."""
+            try:
+                scene = getattr(kernel.root, "mainscene", None)
+
+                if scene is None:
+                    channel(_("Scene not available. GUI may not be running."))
+                    return
+
+                if not hasattr(scene, '_cache'):
+                    channel(_("Scene does not have cache statistics enabled."))
+                    return
+
+                scene._cache.print_statistics(channel)
+            except Exception as e:
+                channel(f"Error retrieving cache statistics: {e}")
+
+        @kernel.console_command(
+            "cache_reset",
+            help=_("Reset layer cache statistics"),
+            hidden=True,
+        )
+        def cache_reset_cmd(command, channel, _, **kwargs):
+            """Reset cache statistics."""
+            try:
+                scene = getattr(kernel.root, "mainscene", None)
+
+                if scene is None:
+                    channel(_("Scene not available. GUI may not be running."))
+                    return
+
+                if not hasattr(scene, '_cache'):
+                    channel(_("Scene does not have cache statistics enabled."))
+                    return
+
+                scene._cache.reset_statistics()
+                channel(_("Cache statistics reset."))
+            except Exception as e:
+                channel(f"Error resetting cache statistics: {e}")
+
+        @kernel.console_command(
+            "notify_stats",
+            help=_("Display element notification statistics"),
+            hidden=True,
+        )
+        def notify_stats_cmd(command, channel, _, **kwargs):
+            """Show notification call counts for element tree operations."""
+            try:
+                context = _
+                elements = None
+
+                # Try to get elements service from context
+                if hasattr(context, 'elements') and context.elements:
+                    elements = context.elements
+                else:
+                    # Fallback to kernel root
+                    elements = kernel.root.elements
+
+                if elements is None:
+                    channel(_("Elements service not available."))
+                    return
+
+                if not hasattr(elements, '_notification_stats'):
+                    channel(_("Elements service does not have notification tracking enabled."))
+                    return
+
+                elements.print_notification_stats(channel)
+            except Exception as e:
+                channel(f"Error retrieving notification statistics: {e}")
+
+        @kernel.console_command(
+            "notify_reset",
+            help=_("Reset element notification statistics"),
+            hidden=True,
+        )
+        def notify_reset_cmd(command, channel, _, **kwargs):
+            """Reset notification statistics."""
+            try:
+                context = _
+                elements = None
+
+                # Try to get elements service from context
+                if hasattr(context, 'elements') and context.elements:
+                    elements = context.elements
+                else:
+                    # Fallback to kernel root
+                    elements = kernel.root.elements
+
+                if elements is None:
+                    channel(_("Elements service not available."))
+                    return
+
+                if not hasattr(elements, '_notification_stats'):
+                    channel(_("Elements service does not have notification tracking enabled."))
+                    return
+
+                elements.reset_notification_stats()
+                channel(_("Notification statistics reset."))
+            except Exception as e:
+                channel(f"Error resetting notification statistics: {e}")
 
         if kernel._gui:
 

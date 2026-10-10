@@ -507,7 +507,13 @@ class TextPropertyPanel(ScrolledPanel):
             page_fonthistory.Layout()
 
         page_fonthistory.Bind(wx.EVT_SIZE, on_size_fh)
-
+        for panel in (
+            page_main,
+            page_variables,
+            page_fonthistory,
+            page_extended,
+        ):
+            panel.Reparent(self.notebook)
         self.notebook.AddPage(page_main, _("Colors"))
         self.notebook.AddPage(page_variables, _("Text-Variables"))
         self.notebook.AddPage(page_fonthistory, _("Font-History"))
@@ -582,7 +588,7 @@ class TextPropertyPanel(ScrolledPanel):
         self.renderer.measure_text(self.node)
         bb = self.node.bounds
         self.context.elements.signal("element_property_reload", self.node)
-        self.context.signal("refresh_scene", "Scene")
+        self.context.elements.refresh_signal(just_emphasized=True)
 
     def on_button_smaller(self, event):
         try:

@@ -192,6 +192,7 @@ class TestDriverGalvoRotary(unittest.TestCase):
             device = kernel.device
             rotary_path = kernel.device.path
             device(f"set -p {rotary_path} rotary_active True")
+            device(f"set -p {rotary_path} rotary_auto_wrap_scale False")
             device(f"set -p {rotary_path} rotary_scale_y 2.0")
             device.signal("rotary_active", True)
             kernel.device.rotary.realize()  # In case signal doesn't update the device settings quickly enough.

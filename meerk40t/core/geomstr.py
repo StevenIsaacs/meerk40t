@@ -70,7 +70,6 @@ import re
 from contextlib import contextmanager
 from copy import copy
 
-import numpy
 import numpy as np
 
 # Import numba for JIT compilation optimization
@@ -222,6 +221,19 @@ def distance_squared(p1_x, p1_y, p2_x, p2_y):
     dx = p2_x - p1_x
     dy = p2_y - p1_y
     return dx * dx + dy * dy
+
+
+def _cross_2d(a, b):
+    """
+    2D scalar cross product (z-component), broadcasting over the last axis.
+
+    NumPy 2.3 removed support for 2-dimensional inputs to ``np.cross``; this
+    helper replaces those calls. Accepts single vectors or arrays of vectors
+    shaped ``(..., 2)`` and returns ``a_x * b_y - a_y * b_x``.
+    """
+    a = np.asarray(a)
+    b = np.asarray(b)
+    return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
 
 
 # Centralized utilities for NumPy and point conversion
@@ -3338,10 +3350,10 @@ class Geomstr:
                 return path
             points = list(zip(*[iter(points)] * 2))
             first_point = points[0]
-        if isinstance(first_point, numpy.ndarray):
+        if isinstance(first_point, np.ndarray):
             points = list(first_point)
             first_point = points[0]
-        if isinstance(first_point, (list, tuple, numpy.ndarray)):
+        if isinstance(first_point, (list, tuple, np.ndarray)):
             points = [None if pts is None else pts[0] + pts[1] * 1j for pts in points]
             first_point = points[0]
         if isinstance(first_point, complex):
@@ -7176,7 +7188,7 @@ class Geomstr:
         """
 
         def process(S, P, a, b):
-            signed_dist = np.cross(S[P] - S[a], S[b] - S[a])
+            signed_dist = _cross_2d(S[P] - S[a], S[b] - S[a])
             K = [i for s, i in zip(signed_dist, P) if s > 0 and i != a and i != b]
 
             if len(K) == 0:
@@ -8283,7 +8295,7 @@ class Geomstr:
             if line_length == 0:
                 return np.linalg.norm(points - start, axis=-1)
             if line.size == 2:
-                return abs(np.cross(line, start - points)) / line_length  # 2D case
+                return abs(_cross_2d(line, start - points)) / line_length  # 2D case
             return (
                 abs(np.linalg.norm(np.cross(line, start - points), axis=-1))
                 / line_length
@@ -8411,7 +8423,7 @@ class Geomstr:
                 side2 = sides[i + 2]
 
                 # Check if parallel (cross product should be near zero)
-                cross = abs(np.cross(side1, side2))
+                cross = abs(_cross_2d(side1, side2))
                 side1_len = np.linalg.norm(side1)
                 side2_len = np.linalg.norm(side2)
 
@@ -8494,7 +8506,7 @@ class Geomstr:
             for i in range(n):
                 v1 = points[i] - center
                 v2 = points[(i + 1) % n] - center
-                angle = np.arctan2(np.cross(v1, v2), np.dot(v1, v2))
+                angle = np.arctan2(_cross_2d(v1, v2), np.dot(v1, v2))
                 angles.append(angle)
 
             expected_angle = 2 * np.pi / n

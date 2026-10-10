@@ -28,6 +28,7 @@ from ..gui.wxutils import (
     wxRadioBox,
     wxStaticBitmap,
     wxStaticText,
+    dispatch_to_main_thread,
 )
 from ..kernel import signal_listener
 from .icons import STD_ICON_SIZE, get_default_icon_size, icons8_arrange
@@ -1597,14 +1598,17 @@ class Alignment(MWindow):
         self.panel_align = AlignmentPanel(
             self, wx.ID_ANY, context=self.context, scene=self.scene
         )
+        self.panel_align.Reparent(self.notebook_main)
         self.notebook_main.AddPage(self.panel_align, _("Align"))
         self.panel_distribution = DistributionPanel(
             self, wx.ID_ANY, context=self.context, scene=self.scene
         )
+        self.panel_distribution.Reparent(self.notebook_main)
         self.notebook_main.AddPage(self.panel_distribution, _("Distribute"))
         self.panel_arrange = ArrangementPanel(
             self, wx.ID_ANY, context=self.context, scene=self.scene
         )
+        self.panel_arrange.Reparent(self.notebook_main)
         self.notebook_main.AddPage(self.panel_arrange, _("Arrange"))
         self.sizer.Add(self.notebook_main, 1, wx.EXPAND, 0)
         self.Layout()
@@ -1622,7 +1626,8 @@ class Alignment(MWindow):
 
     @signal_listener("reference")
     @signal_listener("emphasized")
-    def on_emphasize_signal(self, origin, *args):
+    @dispatch_to_main_thread
+    def on_emphasize_signal(self, origin, *args, **kwargs):
         has_emph = self.context.elements.has_emphasis()
         self.panel_align.show_stuff(has_emph)
         self.panel_distribution.show_stuff(has_emph)

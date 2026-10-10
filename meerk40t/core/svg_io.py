@@ -743,8 +743,10 @@ class SVGProcessor:
         load_operations,
         load_hidden_to_regmarks=True,
         reuse_operations=True,
+        replace_ops=False,
     ):
         self.elements = elements
+        self.fastmode = getattr(self.elements, "fastload", False)
 
         self.operation_list = list()
         self.element_list = list()
@@ -757,6 +759,7 @@ class SVGProcessor:
         self.pathname = None
         self.load_operations = load_operations
         self.reuse_operations = reuse_operations
+        self.replace_ops = replace_ops
         self.mk_params = list(
             self.elements.kernel.lookup_all("registered_mk_svg_parameters")
         )
@@ -784,16 +787,12 @@ class SVGProcessor:
         @param pathname:
         @return:
         """
-        retain_op_list = [
-            child
-            for child in list(self.elements.ops())
-            if child._children is not None and len(child._children) > 0
-        ]
+        retain_op_list = list(self.elements.ops())
         self.pathname = pathname
 
         context_node = self.elements.elem_branch
         with self.elements.node_lock:
-            file_node = context_node.add(type="file", filepath=pathname)
+            file_node = context_node.add(type="file", filepath=pathname, fast=self.fastmode)
         file_node.focus()
 
         self.parse(svg, file_node, self.element_list, branch="elements")
@@ -801,6 +800,15 @@ class SVGProcessor:
         if self.load_operations and self.operations_generated:
             # print ("Will replace all operations...")
             self.requires_classification = False
+            if self.replace_ops:
+                # Opening a project: clear pre-existing operations
+                # that weren't reused by the file.
+                with self.elements.node_lock:
+                    for child in list(self.elements.op_branch.children):
+                        if child in retain_op_list and not hasattr(child, "_ref_load"):
+                            child.remove_all_children(fast=True, destroy=True)
+                            child.remove_node(fast=True, destroy=True)
+            # Remove orphan operations from the file that got no references.
             with self.elements.node_lock:
                 for child in list(self.elements.op_branch.children):
                     if child in retain_op_list:
@@ -823,7 +831,7 @@ class SVGProcessor:
                     for ref in refs.split(" "):
                         for e in self.element_list:
                             if e.id == ref:
-                                op.add_reference(e)
+                                op.add_reference(e, fast=self.fastmode)
 
         if self.requires_classification and self.elements.classify_new:
             self.elements.classify(self.element_list)
@@ -1053,6 +1061,7 @@ class SVGProcessor:
                     SVG_ATTR_TEXT_ALIGNMENT_BASELINE,
                     element.values.get(SVG_ATTR_TEXT_DOMINANT_BASELINE, "baseline"),
                 ),
+                fast=self.fastmode,
                 matrix=element.transform,
                 fill=element.fill,
                 stroke=element.stroke,
@@ -1115,6 +1124,7 @@ class SVGProcessor:
                 label=label,
                 lock=lock,
                 hidden=set_hidden,
+                fast=self.fastmode,
             )
             self.check_for_label_display(node, element)
             self.check_for_line_attributes(node, element)
@@ -1147,6 +1157,7 @@ class SVGProcessor:
                 label=label,
                 lock=lock,
                 hidden=set_hidden,
+                fast=self.fastmode,
             )
             self.check_for_label_display(node, element)
             self.check_for_line_attributes(node, element)
@@ -1199,6 +1210,7 @@ class SVGProcessor:
                 label=label,
                 lock=lock,
                 hidden=set_hidden,
+                fast=self.fastmode,
             )
             self.check_for_label_display(node, element)
             self.check_for_line_attributes(node, element)
@@ -1230,6 +1242,7 @@ class SVGProcessor:
                 label=label,
                 lock=lock,
                 hidden=set_hidden,
+                fast=self.fastmode,
             )
             self.check_for_label_display(node, element)
             self.check_for_line_attributes(node, element)
@@ -1283,6 +1296,7 @@ class SVGProcessor:
                 label=label,
                 lock=lock,
                 hidden=set_hidden,
+                fast=self.fastmode,
             )
             self.check_for_label_display(node, element)
             self.check_for_line_attributes(node, element)
@@ -1437,6 +1451,7 @@ class SVGProcessor:
                         depth_resolution=_depth_resolution,
                         keyhole_reference=_keyhole,
                         hidden=set_hidden,
+                        fast=self.fastmode,
                     )
                     self.check_for_label_display(node, element)
                     self.check_for_bound_information(node, element)
@@ -1533,10 +1548,10 @@ class SVGProcessor:
                     if node_type == "op hatch":
                         # Special fallback operation, op hatch is an op engrave with an effect hatch within it.
                         node_type = "op engrave"
-                        op = self.elements.op_branch.add(type=node_type, **attrs)
-                        effect = op.add(type="effect hatch", **attrs)
+                        op = self.elements.op_branch.add(type=node_type, fast=self.fastmode, **attrs)
+                        effect = op.add(type="effect hatch", fast=self.fastmode, **attrs)
                     else:
-                        op = self.elements.op_branch.add(type=node_type, **attrs)
+                        op = self.elements.op_branch.add(type=node_type, fast=self.fastmode, **attrs)
                 op._ref_load = element.values.get("references")
 
                 if op is None or not hasattr(op, "type") or op.type is None:
@@ -1560,7 +1575,7 @@ class SVGProcessor:
                     "settings"
                 ]  # If settings was set, delete it, or it will mess things up
             with self.elements.node_lock:
-                elem = context_node.add(type=node_type, **attrs)
+                elem = context_node.add(type=node_type, fast=self.fastmode, **attrs)
             # This could be an elem point
             self.check_for_label_display(elem, element)
             self.check_for_bound_information(elem, element)
@@ -1626,6 +1641,7 @@ class SVGProcessor:
                     label=_label,
                     lock=_lock,
                     hidden=set_hidden,
+                    fast=self.fastmode,
                 )
                 self.check_for_label_display(node, element)
                 self.check_for_bound_information(node, element)
@@ -1750,6 +1766,51 @@ class SVGProcessor:
                                 break
                         if differs:
                             continue
+                        # Compare effect children to avoid reusing an
+                        # operation whose effects don't match the SVG.
+                        existing_effects = [
+                            node
+                            for node in testop.children
+                            if node.type.startswith("effect ")
+                        ]
+                        svg_effect_attrs = []
+                        for child in element:
+                            if not isinstance(child, Group):
+                                continue
+                            ca = dict(child.values.get("attributes", {}))
+                            if ca.get("type", "").startswith("effect "):
+                                svg_effect_attrs.append(ca)
+                        # Different number of effects — not a match.
+                        if len(existing_effects) != len(svg_effect_attrs):
+                            differs = True
+                        # Compare each effect's parameters.
+                        if not differs:
+                            for eff_node, svg_attrs in zip(
+                                existing_effects, svg_effect_attrs
+                            ):
+                                if eff_node.type != svg_attrs.get("type", ""):
+                                    differs = True
+                                    break
+                                for attr_key, attr_val in svg_attrs.items():
+                                    if attr_key in (
+                                        "type", "id", "label",
+                                        "lock", "hidden", "references",
+                                    ):
+                                        continue
+                                    node_val = getattr(
+                                        eff_node, attr_key, None
+                                    )
+                                    if node_val is None:
+                                        node_val = eff_node.settings.get(
+                                            attr_key
+                                        ) if hasattr(eff_node, "settings") else None
+                                    if node_val is not None and str(node_val) != str(attr_val):
+                                        differs = True
+                                        break
+                                if differs:
+                                    break
+                        if differs:
+                            continue
                         context_node = testop
                         already = True
                         break
@@ -1757,7 +1818,7 @@ class SVGProcessor:
             if not already:
                 with self.elements.node_lock:
                     context_node = context_node.add(
-                        type=e_type, id=ident, label=_label, **e_dict
+                        type=e_type, id=ident, label=_label, fast=self.fastmode, **e_dict
                     )
                     self.check_for_label_display(context_node, element)
                     self.check_for_bound_information(context_node, element)
@@ -1766,12 +1827,43 @@ class SVGProcessor:
             if hasattr(context_node, "validate"):
                 context_node.validate()
 
-            # recurse to children
+            # Recurse to children, but skip effect nodes if we are
+            # reusing an operation that already has matching effects.
+            # Collect the skipped effects' references and assign them
+            # to the operation — add_reference will route them to the
+            # existing effect child automatically.
+            skip_effects = already and any(
+                c.type.startswith("effect ")
+                for c in context_node._children
+            )
+            if skip_effects:
+                effect_refs = []
+                for child in element:
+                    if isinstance(child, Group):
+                        ca = child.values.get("attributes", {})
+                        if ca.get("type", "").startswith("effect "):
+                            refs = ca.get("references")
+                            if refs:
+                                effect_refs.append(refs)
+                if effect_refs:
+                    all_refs = " ".join(effect_refs)
+                    if context_node._ref_load:
+                        context_node._ref_load += " " + all_refs
+                    else:
+                        context_node._ref_load = all_refs
             if self.reverse:
                 for child in reversed(element):
+                    if skip_effects and isinstance(child, Group):
+                        ca = child.values.get("attributes", {})
+                        if ca.get("type", "").startswith("effect "):
+                            continue
                     self.parse(child, context_node, e_list, branch=branch)
             else:
                 for child in element:
+                    if skip_effects and isinstance(child, Group):
+                        ca = child.values.get("attributes", {})
+                        if ca.get("type", "").startswith("effect "):
+                            continue
                     self.parse(child, context_node, e_list, branch=branch)
         elif isinstance(element, Use):
             # recurse to children, but do not subgroup elements.
@@ -1798,14 +1890,13 @@ class SVGProcessor:
             # We need to add another filenode under regmarks and move all elements to it
             context_node = self.elements.reg_branch
             with self.elements.node_lock:
-                file_node = context_node.add(type="file", filepath=self.pathname)
+                file_node = context_node.add(type="file", fast=self.fastmode, filepath=self.pathname)
                 for node in self.regmark_list:
                     if node._parent is context_node:
                         if node.type == "group" and (
                             node.id == "regmarks" or node.label == "regmarks"
                         ):
-                            for n in list(node.children):
-                                file_node.append_child(n)
+                            file_node.append_children(list(node.children), fast=True)
                             node.remove_node()  # Removing group/file node.
                         else:
                             file_node.append_child(node)
@@ -1814,9 +1905,11 @@ class SVGProcessor:
             regmark = self.elements.reg_branch
             for c in regmark.children:
                 if c.type == "group" and (c.id == "regmarks" or c.label == "regmarks"):
-                    for n in list(c.children):
-                        c.insert_sibling(n)
+                    c.insert_siblings(list(c.children), fast=True)
                     c.remove_node()  # Removing group/file node.
+            # Signal tree rebuild after bulk operations - in fastmode we do a full rebuild at the end.
+            if not self.fastmode:
+                self.elements.signal("rebuild_tree", "regmarks")
 
         needs_update = False
         for c in self.elements.flat():
@@ -1835,6 +1928,9 @@ class SVGProcessor:
 
         if needs_update:
             self.elements.process_keyhole_updates(None)
+        if self.fastmode:
+            # Rebuild tree once at end: elements, regmarks and operations
+            self.elements.signal("rebuild_tree")
 
 
 class SVGLoader:
@@ -1879,12 +1975,14 @@ class SVGLoader:
             raise BadFileError(str(e)) from e
         reuse = elements_service.reuse_operations_on_load
         to_regmarks = elements_service.load_hidden_to_regmarks
+        replace_ops = kwargs.get("replace_ops", False)
         elements_service._loading_cleared = True
         svg_processor = SVGProcessor(
             elements_service,
             load_operations=True,
             reuse_operations=reuse,
             load_hidden_to_regmarks=to_regmarks,
+            replace_ops=replace_ops,
         )
         svg_processor.process(svg, pathname)
         svg_processor.cleanup()

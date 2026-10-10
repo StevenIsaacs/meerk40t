@@ -22,11 +22,13 @@ import argparse
 import os
 import re
 import sys
+from tabnanny import verbose
+from typing import List, Tuple, Set
 
 import polib
 
 LOCALE_DIR = "./locale"
-
+VERBOSE = False
 # Determine whether output is a TTY. If not (redirected), disable ANSI codes.
 try:
     is_tty = sys.stdout.isatty()
@@ -61,25 +63,25 @@ else:
     RED = GREEN = YELLOW = BLUE = BOLD = ENDC = ""
 
 
-def print_header(text):
+def print_header(text: str) -> None:
     print(f"{BLUE}{BOLD}{'=' * 60}{ENDC}")
     print(f"{BLUE}{BOLD}{text.center(60)}{ENDC}")
     print(f"{BLUE}{BOLD}{'=' * 60}{ENDC}")
 
 
-def print_error(text):
+def print_error(text: str) -> None:
     print(f"{RED}ERROR: {text}{ENDC}")
 
 
-def print_warning(text):
+def print_warning(text: str) -> None:
     print(f"{YELLOW}WARNING: {text}{ENDC}")
 
 
-def print_success(text):
+def print_success(text: str) -> None:
     print(f"{GREEN}{text}{ENDC}")
 
 
-def print_info(text):
+def print_info(text: str) -> None:
     print(f"{BLUE}{text}{ENDC}")
 
 
@@ -230,7 +232,7 @@ def find_erroneous_translations(file_path: str) -> bool:
     return found_error
 
 
-def create_mo_files(force: bool, locales: set) -> list:
+def create_mo_files(force: bool, locales: Set[str]) -> List[Tuple[str, List[str]]]:
     """
     Recursively compiles all valid .po files into .mo files under ./locale/LC_MESSAGES.
     Skips files with errors. If force is True, always recompiles.
@@ -276,8 +278,9 @@ def create_mo_files(force: bool, locales: set) -> list:
 
     for d_local, d in zip(po_locales, po_dirs):
         if locales and d_local.lower() not in locales_lower:
-            print_info(f"Skipping locale {d_local}")
-            file_results.append((d_local, "Skipped", "Not in selected locales"))
+            if VERBOSE:
+                print_info(f"Skipping locale {d_local}")
+                file_results.append((d_local, "Skipped", "Not in selected locales"))
             continue
         print_info(f"Processing locale: {d_local}")
         mo_files = []
@@ -395,7 +398,7 @@ def create_mo_files(force: bool, locales: set) -> list:
     return data_files
 
 
-def integrate_delta_files(locales: set) -> None:
+def integrate_delta_files(locales: List[str]) -> None:
     """
     This code integrates translation updates from delta .po files (named delta_xx.po)
     into the main translation .po files for specified locales.
@@ -529,7 +532,16 @@ def main() -> None:
         action="store_true",
         help="Integrate delta_xx.po files into the main .po files",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
     args = parser.parse_args()
+    if args.verbose:
+        global VERBOSE
+        VERBOSE = True
     if "all" in args.locales:
         args.locales = []
     locales = set()
@@ -543,10 +555,9 @@ def main() -> None:
         print_info(f"Processing locales: {', '.join(sorted(locales))}")
     else:
         print_info("Processing all locales")
-
     if args.integrate:
-        integrate_delta_files(locales)
-    create_mo_files(args.force, locales)
+        integrate_delta_files(sorted(locales))
+    create_mo_files(args.force, sorted(locales))
 
 
 if __name__ == "__main__":

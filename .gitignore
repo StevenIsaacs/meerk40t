@@ -145,3 +145,12 @@ local_workspace/
 # VS Code settings
 .vscode/
 release_preview.md
+
+# Claude AI settings
+.claude/
+
+# Flatpak local build artifacts
+.flatpak-builder/
+build-dir/
+flatpak-repo/
+*.flatpak

@@ -1,7 +1,7 @@
 import wx
 
-from meerk40t.gui.wxutils import StaticBoxSizer, TextCtrl, wxButton
 from meerk40t.gui.laserrender import DRAW_MODE_REGMARKS
+from meerk40t.gui.wxutils import StaticBoxSizer, TextCtrl, wxButton
 
 _ = wx.GetTranslation
 
@@ -43,6 +43,7 @@ class RegBranchPanel(wx.Panel):
         bits = DRAW_MODE_REGMARKS
         self.context.draw_mode ^= bits
         self.context.signal("draw_mode", self.context.draw_mode)
+        self.context.signal("invalidate_layer", "generic")
         self.context.signal("refresh_scene", "Scene")
 
     def on_move_back(self, event):
@@ -54,6 +55,7 @@ class RegBranchPanel(wx.Panel):
         self.set_widgets(self.node)
         elements.set_selected([self.node])
         self.context.signal("selected")
+        self.context.signal("modified_by_tool")
 
     def pane_hide(self):
         pass

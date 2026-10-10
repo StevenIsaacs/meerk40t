@@ -167,18 +167,30 @@ class ImageNode(Node, LabelDisplay, Suppressable):
             self.process_image(step_x, step_y, not self.prevent_crop)
 
     def __copy__(self):
-        nd = self.node_dict
-        nd["matrix"] = copy(self.matrix)
-        nd["operations"] = copy(self.operations)
-        nd["comingfromcopy"] = True
-        newnode = ImageNode(**nd)
+        import threading
+        obj = ImageNode.__new__(ImageNode)
+        obj.__dict__.update(self.__dict__)
+        obj._children = list()
+        obj._references = list()
+        obj._points = list()
+        obj._default_map = dict()
+        obj._parent = None
+        obj._root = None
+        # Deep-copy mutable objects
+        obj.matrix = copy(self.matrix)
+        obj.operations = copy(self.operations)
+        # Create new lock — must not share with original
+        obj._update_lock = threading.Lock()
+        obj._update_thread = None
+        obj._needs_update = False
+        # Deep-copy processed image data
         if self._processed_image is not None:
-            newnode._processed_image = copy(self._processed_image)
-            newnode._processed_matrix = copy(self._processed_matrix)
-            newnode._actualized_matrix = copy(self._actualized_matrix)
-        g = None if self._keyhole_geometry is None else copy(self._keyhole_geometry)
-        newnode.set_keyhole(self.keyhole_reference, g)
-        return newnode
+            obj._processed_image = copy(self._processed_image)
+            obj._processed_matrix = copy(self._processed_matrix)
+            obj._actualized_matrix = copy(self._actualized_matrix)
+        if self._keyhole_geometry is not None:
+            obj._keyhole_geometry = copy(self._keyhole_geometry)
+        return obj
 
     def __repr__(self):
         return f"{self.__class__.__name__}('{self.type}', {str(self.image)}, {str(self._parent)})"
@@ -494,6 +506,12 @@ class ImageNode(Node, LabelDisplay, Suppressable):
             self._processed_matrix = actualized_matrix * inverted_main_matrix
             self._processed_image = image
             self._process_image_failed = False
+            # The rendered cache reflects the *previous* processed image; once
+            # the processed image is replaced, the cache is stale and must not
+            # be reused. (Reusing it across cutplan copy + matrix-flip
+            # preprocess caused raster ops to render unflipped pixels at flipped
+            # device coords, producing a mirrored simulation.)
+            self._cache = None
             bb = self.bbox()
             self._bounds = bb
             self._paint_bounds = bb
@@ -933,13 +951,7 @@ class ImageNode(Node, LabelDisplay, Suppressable):
                 height = cbox[3] - cbox[1]
                 if width != image.width or height != image.height:
                     image = image.crop(cbox)
-                    # TODO:
-                    # We did not crop the image so far, but we already applied
-                    # the cropped transformation! That may be faulty, and needs to
-                    # be corrected at a later stage, but this logic, even if clumsy
-                    # is good enough: don't shift things twice!
-                    if orgbox[0] == 0 and orgbox[1] == 0:
-                        actualized_matrix.post_translate(cbox[0], cbox[1])
+                    actualized_matrix.post_translate(cbox[0], cbox[1])
 
         actualized_matrix.post_scale(step_x, step_y)
         actualized_matrix.post_translate(tx, ty)

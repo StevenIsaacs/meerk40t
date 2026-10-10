@@ -6,6 +6,7 @@ import meerk40t.gui.icons as mkicons
 from meerk40t.core.elements.element_types import op_parent_nodes
 from meerk40t.core.units import Length
 from meerk40t.gui.laserrender import swizzlecolor
+from meerk40t.gui.position_mixin import PositionDimensionMixin
 from meerk40t.gui.wxutils import (
     StaticBoxSizer,
     TextCtrl,
@@ -333,7 +334,7 @@ class IdPanel(wx.Panel):
     def on_check_label(self, event):
         self.node.label_display = bool(self.check_label.GetValue())
         self.context.signal("element_property_update", self.node)
-        self.context.signal("refresh_scene", "Scene")
+        self.context.elements.refresh_signal(just_emphasized=True)
 
     def on_check_hidden(self, event):
         self.node.hidden = bool(self.check_hidden.GetValue())
@@ -343,7 +344,7 @@ class IdPanel(wx.Panel):
             self.context.signal("refresh_tree")
         data = self.add_node_and_children(self.node)
         self.context.signal("element_property_reload", data)
-        self.context.signal("refresh_scene", "Scene")
+        self.context.elements.refresh_signal()
         self.context.signal("warn_state_update")
 
     def on_hidden_click(self, event):
@@ -353,7 +354,7 @@ class IdPanel(wx.Panel):
         self.Layout()
         data = self.add_node_and_children(self.node)
         self.context.signal("element_property_reload", data)
-        self.context.signal("refresh_scene", "Scene")
+        self.context.elements.refresh_signal()
         self.context.signal("warn_state_update")
 
     def pane_hide(self):
@@ -608,7 +609,7 @@ class LinePropPanel(wx.Panel):
         try:
             self.node.linecap = _id
             self.context.signal("element_property_update", self.node)
-            self.context.signal("refresh_scene", "Scene")
+            self.context.elements.refresh_signal(just_emphasized=True)
         except AttributeError:
             pass
 
@@ -619,7 +620,7 @@ class LinePropPanel(wx.Panel):
         try:
             self.node.linejoin = _id
             self.context.signal("element_property_update", self.node)
-            self.context.signal("refresh_scene", "Scene")
+            self.context.elements.refresh_signal(just_emphasized=True)
         except AttributeError:
             pass
 
@@ -630,7 +631,7 @@ class LinePropPanel(wx.Panel):
         try:
             self.node.fillrule = _id
             self.context.signal("element_property_update", self.node)
-            self.context.signal("refresh_scene", "Scene")
+            self.context.elements.refresh_signal(just_emphasized=True)
         except AttributeError:
             pass
 
@@ -668,7 +669,7 @@ class LinePropPanel(wx.Panel):
             # We need to recalculate the appearance
             self.node.empty_cache()
             self.context.signal("element_property_update", self.node)
-            self.context.signal("refresh_scene", "Scene")
+            self.context.elements.refresh_signal(just_emphasized=True)
         except AttributeError:
             pass
 
@@ -680,7 +681,7 @@ class LinePropPanel(wx.Panel):
             if self.node.mktablength != swidth:
                 self.node.mktablength = swidth
                 self.node.empty_cache()
-                self.context.signal("refresh_scene", "Scene")
+                self.context.elements.refresh_signal(just_emphasized=True)
                 self.context.signal("element_property_update", self.node)
                 self.context.signal("tabs_updated")
         except (ValueError, AttributeError):
@@ -694,7 +695,7 @@ class LinePropPanel(wx.Panel):
             if self.node.mktabpositions != positions:
                 self.node.mktabpositions = positions
                 self.node.empty_cache()
-                self.context.signal("refresh_scene", "Scene")
+                self.context.elements.refresh_signal(just_emphasized=True)
                 self.context.signal("element_property_update", self.node)
                 self.context.signal("tabs_updated")
         except (ValueError, AttributeError):
@@ -823,7 +824,7 @@ class StrokeWidthPanel(wx.Panel):
         try:
             if self.node.stroke_scaled != flag:
                 self.node.stroke_scaled = flag
-                self.context.signal("refresh_scene", "Scene")
+                self.context.elements.refresh_signal(just_emphasized=True)
                 self.context.signal("element_property_update", self.node)
         except (ValueError, AttributeError):
             pass
@@ -849,7 +850,7 @@ class StrokeWidthPanel(wx.Panel):
             if self.node.stroke_width != stroke_width:
                 self.node.stroke_width = stroke_width
                 self.node.altered()
-                self.context.signal("refresh_scene", "Scene")
+                self.context.elements.refresh_signal(just_emphasized=True)
                 self.context.signal("element_property_update", self.node)
         except (ValueError, AttributeError):
             pass
@@ -931,7 +932,7 @@ class StrokeWidthPanel(wx.Panel):
         pass
 
 
-class PositionSizePanel(wx.Panel):
+class PositionSizePanel(PositionDimensionMixin, wx.Panel):
     def __init__(self, *args, context=None, node=None, **kwds):
         # begin wxGlade: LayerSettingPanel.__init__
         kwds["style"] = kwds.get("style", 0)
@@ -939,6 +940,9 @@ class PositionSizePanel(wx.Panel):
         self.context = context
         self.context.themes.set_window_colors(self)
         self.node = node
+        
+        # Initialize position/dimension state from mixin
+        self._init_position_state()
         self.text_x = TextCtrl(
             self,
             wx.ID_ANY,
@@ -985,6 +989,21 @@ class PositionSizePanel(wx.Panel):
         self.btn_lock_ratio.bitmap_toggled = self.bitmap_locked
         self.btn_lock_ratio.bitmap_untoggled = self.bitmap_unlocked
         self.btn_lock_ratio.SetValue(self.context.lock_active)
+        
+        # Add reference point button for 9-point grid
+        icon_size = int(
+            mkicons.STD_ICON_SIZE * self.context.root.bitmap_correction_scale / 2
+        )
+        self.button_param = wxStaticBitmap(self, wx.ID_ANY, size=wx.Size(icon_size, icon_size))
+        self.pos_bitmaps = self.calculate_position_icons(icon_size)
+        self.button_param.SetBitmap(self.pos_bitmaps[self.offset_index])
+        self.button_param.SetToolTip(
+            _(
+                "Set the point of reference for the element,\n"
+                + "which edge/corner should be put on the given location"
+            )
+        )
+        self.button_param.Bind(wx.EVT_LEFT_DOWN, self.on_button_param)
 
         self.__set_properties()
         self.__do_layout()
@@ -1017,6 +1036,7 @@ class PositionSizePanel(wx.Panel):
         )
 
         sizer_opt.Add(self.btn_lock_ratio, 0, wx.ALIGN_CENTER_HORIZONTAL, 0)
+        sizer_opt.Add(self.button_param, 0, wx.ALIGN_CENTER_HORIZONTAL, 0)
 
         sizer_h_xy = wx.BoxSizer(wx.HORIZONTAL)
         sizer_h_xy.Add(sizer_x, 1, wx.EXPAND, 0)
@@ -1032,7 +1052,9 @@ class PositionSizePanel(wx.Panel):
         self.sizer_v_xywh.Add(sizer_h_xy, 0, wx.EXPAND, 0)
         self.sizer_v_xywh.Add(self.sizer_h_wh, 0, wx.EXPAND, 0)
         sizer_h_dimensions.Add(self.sizer_v_xywh, 1, wx.EXPAND, 0)
+        sizer_h_dimensions.AddSpacer(5)
         sizer_h_dimensions.Add(sizer_opt, 0, wx.ALIGN_CENTER_VERTICAL, 0)
+        sizer_h_dimensions.AddSpacer(10)
 
         sizer_main.Add(sizer_h_dimensions, 0, wx.EXPAND, 0)
 
@@ -1045,10 +1067,10 @@ class PositionSizePanel(wx.Panel):
         self.text_h.SetToolTip(_("New height (enter to apply)"))
         self.text_w.SetToolTip(_("New width (enter to apply)"))
         self.text_x.SetToolTip(
-            _("New X-coordinate of left top corner (enter to apply)")
+            _("New X-coordinate of reference point (enter to apply)")
         )
         self.text_y.SetToolTip(
-            _("New Y-coordinate of left top corner (enter to apply)")
+            _("New Y-coordinate of reference point (enter to apply)")
         )
 
     def pane_hide(self):
@@ -1056,6 +1078,14 @@ class PositionSizePanel(wx.Panel):
 
     def pane_show(self):
         pass
+
+    def on_button_param(self, event):
+        """Handle click on reference point button."""
+        self.handle_reference_click(event)
+        self.button_param.SetBitmap(self.pos_bitmaps[self.offset_index])
+        self.button_param.Refresh()
+        # Update the displayed X/Y values to reflect new reference point
+        self.set_widgets(self.node)
 
     def signal(self, signalstr, myargs):
         # To get updates about translation / scaling of selected elements
@@ -1083,6 +1113,10 @@ class PositionSizePanel(wx.Panel):
         self.Layout()
 
     def set_widgets(self, node):
+        # Use mixin's reentry protection
+        self.protected_update(self._do_set_widgets, node)
+
+    def _do_set_widgets(self, node):
         self.node = node
         try:
             bb = node.bounds
@@ -1105,11 +1139,15 @@ class PositionSizePanel(wx.Panel):
         if units in ("inch", "inches"):
             units = "in"
 
+        # Calculate position at reference point
+        ref_x = x + w * self.offset_x
+        ref_y = y + h * self.offset_y
+
         self.text_x.SetValue(
-            f"{Length(amount=x, preferred_units=units, digits=4).preferred_length}"
+            f"{Length(amount=ref_x, preferred_units=units, digits=4).preferred_length}"
         )
         self.text_y.SetValue(
-            f"{Length(amount=y, preferred_units=units, digits=4).preferred_length}"
+            f"{Length(amount=ref_y, preferred_units=units, digits=4).preferred_length}"
         )
         self.text_w.SetValue(
             f"{Length(amount=w, preferred_units=units, digits=4).preferred_length}"
@@ -1134,14 +1172,17 @@ class PositionSizePanel(wx.Panel):
             newy = float(Length(self.text_y.GetValue()))
         except (ValueError, AttributeError):
             return
-        dx = newx - bb[0]
-        dy = newy - bb[1]
+        # Apply offset based on reference point
+        ref_x = bb[0] + (bb[2] - bb[0]) * self.offset_x
+        ref_y = bb[1] + (bb[3] - bb[1]) * self.offset_y
+        dx = newx - ref_x
+        dy = newy - ref_y
         if dx != 0 or dy != 0:
             self.node.matrix.post_translate(dx, dy)
             # self.node.modified()
             self.node.translated(dx, dy)
             self.context.elements.signal("element_property_update", self.node)
-            self.context.elements.signal("refresh_scene", "Scene")
+            self.context.elements.refresh_signal(just_emphasized=True)
 
     def scale_it(self, was_width):
         if not self.node.can_scale:
@@ -1167,8 +1208,11 @@ class PositionSizePanel(wx.Panel):
             else:
                 sx = sy
         if sx != 1.0 or sy != 1.0:
-            self.node.matrix.post_scale(sx, sy, bb[0], bb[1])
-            self.node.scaled(sx=sx, sy=sy, ox=bb[0], oy=bb[1])
+            # Scale around the reference point
+            ox = bb[0] + (bb[2] - bb[0]) * self.offset_x
+            oy = bb[1] + (bb[3] - bb[1]) * self.offset_y
+            self.node.matrix.post_scale(sx, sy, ox, oy)
+            self.node.scaled(sx=sx, sy=sy, ox=ox, oy=oy)
             # self.node.modified()
             bb = self.node.bounds
             w = bb[2] - bb[0]
@@ -1184,7 +1228,7 @@ class PositionSizePanel(wx.Panel):
             )
 
             self.context.elements.signal("element_property_update", self.node)
-            self.context.elements.signal("refresh_scene", "Scene")
+            self.context.elements.refresh_signal(just_emphasized=True)
 
     def on_toggle_ratio(self, event):
         self.btn_lock_ratio.update_button(None)
@@ -1423,7 +1467,7 @@ class RoundedRectPanel(wx.Panel):
             self.slider_y.SetValue(min(max_val_y, int_ry))
         self.node.altered()
         self.context.elements.signal("element_property_update", self.node)
-        self.context.signal("refresh_scene", "Scene")
+        self.context.elements.refresh_signal(just_emphasized=True)
 
     def on_slider_x(self, event):
         if self.node is None:
@@ -1483,7 +1527,7 @@ class AutoHidePanel(wx.Panel):
         for e in self.node.children:
             if hasattr(e, "hidden"):
                 e.hidden = flag
-        self.context.signal("refresh_scene", "Scene")
+        self.context.refresh_signal()
         self.context.signal("element_property_update", self.node.children)
 
     def accepts(self, node):

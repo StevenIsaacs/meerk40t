@@ -90,6 +90,7 @@ class PropertyWindow(MWindow):
             except AttributeError:
                 name = instance.__class__.__name__
 
+            page_panel.Reparent(self.notebook_main)
             self.notebook_main.AddPage(page_panel, _(name))
             if hasattr(page_panel, "set_widgets"):
                 page_panel.set_widgets(instance)
@@ -247,12 +248,12 @@ class PropertyWindow(MWindow):
 
     @signal_listener("selected")
     def on_selected(self, origin, *args):
-        nodes = list(self.context.elements.flat(selected=True, cascade=False))
+        nodes = list(self.context.elements._tree.flat(selected=True, cascade=False))
         self.validate_display(nodes, "selected")
 
     @signal_listener("emphasized")
     def on_emphasized(self, origin, *args):
-        nodes = list(self.context.elements.flat(emphasized=True, cascade=False))
+        nodes = list(self.context.elements._tree.flat(emphasized=True, cascade=False))
         self.validate_display(nodes, "emphasized")
 
     @signal_listener("element_property_force")

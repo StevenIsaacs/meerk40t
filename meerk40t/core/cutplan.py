@@ -153,7 +153,10 @@ class CutPlan:
         """
         device = self.context.device
 
-        scene_to_device_matrix = device.view.matrix
+        scene_to_device_matrix = Matrix(device.view.matrix)
+        rotary = getattr(device, "rotary", None)
+        if rotary is not None and rotary.active:
+            scene_to_device_matrix.post_scale(rotary.scale_x, rotary.scale_y)
 
         # ==========
         # Determine the jobs bounds.
@@ -171,10 +174,10 @@ class CutPlan:
                 self.outline = None
             else:
                 self.outline = (
-                    device.view.position(min_x, min_y, margins=False),
-                    device.view.position(max_x, min_y, margins=False),
-                    device.view.position(max_x, max_y, margins=False),
-                    device.view.position(min_x, max_y, margins=False),
+                    scene_to_device_matrix.point_in_matrix_space([min_x, min_y]),
+                    scene_to_device_matrix.point_in_matrix_space([max_x, min_y]),
+                    scene_to_device_matrix.point_in_matrix_space([max_x, max_y]),
+                    scene_to_device_matrix.point_in_matrix_space([min_x, max_y]),
                 )
 
         # ==========
@@ -726,12 +729,13 @@ class CutPlan:
             # self.channel("Dumping scenarios:")
             # self.commands.append(self._dump_scenario)
 
-        # When effect_combine is True but effect_optimize is False, skip travel optimization
-        # and use basic sequencing to prevent skip-marked groups from being optimized
-        if context.opt_effect_combine and not context.opt_effect_optimize:
-            # Skip all travel optimization for effect-combined groups
-            self.commands.append(self.basic_cutcode_sequencing)
-        elif context.opt_inner_first:
+        # Inner-first / travel optimization still runs when effects are combined:
+        # combine_effects marks effect (hatch) groups with .skip, and
+        # short_travel_cutcode sequences those separately (honoring
+        # opt_effect_optimize via hatch_optimize) while optimizing the rest.
+        # A blanket basic_cutcode_sequencing here would disable optimization for
+        # every plan whenever "Keep effect lines together" is on (the default).
+        if context.opt_inner_first:
             # Inner-first optimization takes priority and includes travel optimization
             self.commands.append(self.optimize_cuts)
         elif context.opt_reduce_travel and (
@@ -965,8 +969,11 @@ class CutPlan:
                     c = self.plan[i]
                 self.plan[i] = short_travel_cutcode(
                     c,
+                    kernel=self.context.kernel,
                     channel=channel,
+                    complete_path=self.context.opt_complete_subpaths,
                     grouped_inner=grouped_inner,
+                    hatch_optimize=self.context.opt_effect_optimize,
                 )
 
     def optimize_travel(self):

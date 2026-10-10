@@ -25,6 +25,7 @@ from meerk40t.gui.wxutils import (
     wxRadioBox,
     wxStaticBitmap,
     wxStaticText,
+    dispatch_to_main_thread,
 )
 from meerk40t.kernel import lookup_listener, signal_listener
 
@@ -328,7 +329,7 @@ class LayerSettingPanel(wx.Panel):
                             changed.append(cnode)
                 if len(changed) > 0:
                     self.context.elements.signal("element_property_update", changed)
-                    self.context.elements.signal("refresh_scene", "Scene")
+                    self.context.elements.refresh_signal()
 
         self.context.elements.signal(
             "element_property_reload", self.operation, "button_layer"
@@ -349,7 +350,7 @@ class LayerSettingPanel(wx.Panel):
             self.operation.is_visible = bool(self.checkbox_visible.GetValue())
             self.context.elements.validate_selected_area()
             self.context.elements.signal("element_property_update", self.operation)
-            self.context.elements.signal("refresh_scene", "Scene")
+            self.context.elements.refresh_signal()
 
     def on_check_default(self, event=None):
         if self.operation.default != bool(self.checkbox_default.GetValue()):
@@ -602,7 +603,19 @@ class SpeedPpiPanel(wx.Panel):
                 set_ctrl_value(self.text_speed, str(self.operation.speed))
         if self.operation.power is not None:
             if self.use_percent:
-                set_ctrl_value(self.text_power, f"{self.operation.power / 10.0:.0f}")
+                display_pct = self.operation.power / 10.0
+                if display_pct > 100:
+                    set_ctrl_value(self.text_power, "100")
+                    self.text_power.SetToolTip(
+                        _(
+                            "This operation is stored above 100% ({stored:.0f}%). "
+                            "The laser maximum is 100% — the field is capped here. "
+                            "Lower it and press Enter, or regenerate the Parameter-Test "
+                            "grid with power max ≤ 100."
+                        ).format(stored=display_pct)
+                    )
+                else:
+                    set_ctrl_value(self.text_power, f"{display_pct:.0f}")
             else:
                 set_ctrl_value(self.text_power, f"{self.operation.power:.0f}")
             self.update_power_label()
@@ -644,7 +657,7 @@ class SpeedPpiPanel(wx.Panel):
             return
         try:
             value = float(self.text_power.GetValue())
-            self.power_sizer.SetLabel(_("Power (ppi)") + f" ({value/10:.1f}%)")
+            self.power_sizer.SetLabel(_("Power (ppi)") + f" ({value / 10:.1f}%)")
         except ValueError:
             return
 
@@ -847,6 +860,9 @@ class PassesPanel(wx.Panel):
         on = self.check_passes.GetValue()
         self.text_passes.Enable(on)
         self.operation.passes_custom = bool(on)
+        if on and self.operation.passes <= 0:
+            self.operation.passes = 1
+            set_ctrl_value(self.text_passes, "1")
         self.context.elements.signal(
             "element_property_reload", self.operation, "check_passes"
         )
@@ -946,6 +962,7 @@ class InfoPanel(wx.Panel):
         dlg.Destroy()
         if result == wx.ID_YES:
             elements = self.context.elements
+            # _("Re-Classify")
             with elements.undoscope("Re-Classify"):
                 with elements.node_lock:
                     myop = self.operation
@@ -1109,14 +1126,12 @@ class PanelStartPreference(wx.Panel):
         self.direction_lines = None
         wx.CallAfter(self.refresh_in_ui)
 
+    @dispatch_to_main_thread
     def refresh_display(self):
         if self._Buffer is None:
             self.set_buffer()
 
-        if not wx.IsMainThread():
-            wx.CallAfter(self.refresh_in_ui)
-        else:
-            self.refresh_in_ui()
+        self.refresh_in_ui()
 
     def calculate_raster_lines(self):
         w, h = self._Buffer.Size

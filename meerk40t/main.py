@@ -7,11 +7,24 @@ for full details.
 """
 
 import argparse
+import faulthandler
 import os.path
 import sys
 
+# Wayland can't reposition top-levels (breaks AUI pane drag/dock); use XWayland.
+if (
+    sys.platform.startswith("linux")
+    and os.environ.get("WAYLAND_DISPLAY")
+    and os.environ.get("DISPLAY")
+    and not os.environ.get("GDK_BACKEND")
+):
+    os.environ["GDK_BACKEND"] = "x11"
+
+# Print Python stack on native crashes (SIGSEGV etc).
+faulthandler.enable()
+
 APPLICATION_NAME = "MeerK40t"
-APPLICATION_VERSION = "0.9.8920"
+APPLICATION_VERSION = "0.9.9040"
 
 if not getattr(sys, "frozen", False):
     # If .git directory does not exist we are running from a package like pypi

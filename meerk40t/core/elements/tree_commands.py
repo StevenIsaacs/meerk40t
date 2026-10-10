@@ -93,6 +93,31 @@ def init_commands(kernel):
 
         return "tree", data
 
+    @self.console_command(
+        "check",
+        help=_("check tree integrity"),
+        input_type="tree",
+        output_type="tree",
+    )
+    def tree_check(command, channel, _, data=None, **kwargs):
+        """Check the tree for corruption such as parent-cycles.
+
+        This is intentionally non-destructive: it only reports issues.
+        """
+        if data is None:
+            data = [self._tree]
+
+        for d in data:
+            errors = d.tree_integrity_errors(check_references=True)
+            if not errors:
+                channel(_("No integrity issues detected."))
+                continue
+            channel(_("Integrity issues detected: {count}").format(count=len(errors)))
+            for e in errors:
+                channel(str(e))
+
+        return "tree", data
+
     @self.console_argument("drag", help="Drag node address")
     @self.console_argument("drop", help="Drop node address")
     @self.console_command(
@@ -376,11 +401,12 @@ def init_commands(kernel):
         # print ("Want to delete %d" % entry)
         # for n in todelete[entry]:
         #     print ("Node to delete: %s" % n.type)
+        # _("Delete")
         with self.undoscope("Delete"):
             self.remove_nodes(todelete[entry])
             self.validate_selected_area()
         self.signal("update_group_labels")
-        self.signal("refresh_scene", "Scene")
+        self.refresh_signal()
         return "tree", [self._tree]
 
     @self.console_command(
@@ -399,7 +425,7 @@ def init_commands(kernel):
         with self.static("remove"):
             self.remove_nodes(data)
         self.signal("update_group_labels")
-        self.signal("refresh_scene", "Scene")
+        self.refresh_signal()
         return "tree", [self._tree]
 
     @self.console_command(

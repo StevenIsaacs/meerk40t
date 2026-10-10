@@ -60,6 +60,7 @@ from .wxutils import (
     wxListBox,
     wxListCtrl,
     wxStaticText,
+    dispatch_to_main_thread,
 )
 from .zmatrix import ZMatrix
 
@@ -814,6 +815,7 @@ class SimulationPanel(wx.Panel, Job):
 
         # Initialize core attributes
         self.retries = 0
+        self._cancel_cache_calculate = False
         self.plan_name = plan_name
         self.auto_clear = auto_clear
 
@@ -1034,6 +1036,15 @@ class SimulationPanel(wx.Panel, Job):
         )
         self.wait_info.Hide()
 
+        self.button_cancel_calculate = wxButton(self, wx.ID_ANY, _("Stop calculating"))
+        self.button_cancel_calculate.SetToolTip(
+            _(
+                "Stop building simulation preview paths. The plan stays loaded; "
+                "Recalculate rebuilds caches. Cancellation applies between cuts."
+            )
+        )
+        self.button_cancel_calculate.Hide()
+
     def _setup_layout(self):
         """Setup the layout of all UI components."""
         self.__set_properties()
@@ -1045,6 +1056,11 @@ class SimulationPanel(wx.Panel, Job):
         self.Bind(wx.EVT_BUTTON, self.on_button_play, self.button_play)
         self.Bind(wx.EVT_SLIDER, self.on_slider_playback, self.slider_playbackspeed)
         self.Bind(wx.EVT_BUTTON, self.on_button_spool, self.button_spool)
+        self.Bind(
+            wx.EVT_BUTTON,
+            self.on_button_cancel_calculate,
+            self.button_cancel_calculate,
+        )
         self.Bind(wx.EVT_RIGHT_DOWN, self.on_mouse_right_down)
         self.Bind(wx.EVT_RADIOBUTTON, self.on_radio_playback_mode, self.radio_cut)
         self.Bind(
@@ -1117,7 +1133,7 @@ class SimulationPanel(wx.Panel, Job):
         self.running = False
         self.slided_in = True
         self.start_time = perf_counter()
-        self.debug(f"Init done: {perf_counter()-self.start_time}")
+        self.debug(f"Init done: {perf_counter() - self.start_time}")
 
     def reload_statistics(self):
         try:
@@ -1134,7 +1150,7 @@ class SimulationPanel(wx.Panel, Job):
         return
 
     def _startup(self):
-        self.debug(f"Startup: {perf_counter()-self.start_time}")
+        self.debug(f"Startup: {perf_counter() - self.start_time}")
         self.slided_in = True
         self.fit_scene_to_panel()
 
@@ -1305,6 +1321,7 @@ class SimulationPanel(wx.Panel, Job):
         h_sizer_buttons.Add(sizer_speed_options, 1, wx.EXPAND, 0)
         # sizer_execute.Add(self.combo_device, 0, wx.EXPAND, 0)
         sizer_execute.Add(self.button_spool, 1, wx.EXPAND, 0)
+        sizer_execute.Add(self.button_cancel_calculate, 0, wx.EXPAND, 0)
         h_sizer_buttons.Add(sizer_execute, 1, wx.EXPAND, 0)
         v_sizer_main.Add(self.wait_info, 0, wx.EXPAND, 0)
         v_sizer_main.Add(self.hscene_sizer, 1, wx.EXPAND, 0)
@@ -1652,7 +1669,7 @@ class SimulationPanel(wx.Panel, Job):
         self.interval = factor * 100.0 / float(value)
 
     def _refresh_simulated_plan(self):
-        self.debug(f"Refresh simulated: {perf_counter()-self.start_time}")
+        self.debug(f"Refresh simulated: {perf_counter() - self.start_time}")
         # Stop animation
         if self.running:
             self._stop()
@@ -1730,16 +1747,17 @@ class SimulationPanel(wx.Panel, Job):
 
     @signal_listener("device;modified")
     @signal_listener("plan")
-    def on_plan_change(self, origin, plan_name=None, status=None):
+    @dispatch_to_main_thread
+    def on_plan_change(self, origin, plan_name=None, status=None, **kwargs):
         def resend_signal():
-            self.debug(f"Resending signal: {perf_counter()-self.start_time}")
+            self.debug(f"Resending signal: {perf_counter() - self.start_time}")
             self.context.signal("plan", plan_name=self.plan_name, status=1)
 
         winsize = self.view_pane.GetSize()
         winsize1 = self.hscene_sizer.GetSize()
         winsize2 = self.GetSize()
         self.debug(
-            f"Plan called : {perf_counter()-self.start_time} (Pane: {winsize}, Sizer: {winsize1}, Window: {winsize2})"
+            f"Plan called : {perf_counter() - self.start_time} (Pane: {winsize}, Sizer: {winsize1}, Window: {winsize2})"
         )
         if plan_name == self.plan_name:
             # This may come too early before all things have been done
@@ -1770,6 +1788,7 @@ class SimulationPanel(wx.Panel, Job):
 
     @signal_listener("refresh_simulation")
     def on_request_refresh(self, origin, *args):
+        # request_refresh is thread safe
         self.widget_scene.request_refresh()
 
     def show_wait(self, flag):
@@ -1799,6 +1818,25 @@ class SimulationPanel(wx.Panel, Job):
         else:
             self.options_optimize.Enable(False)
 
+    def on_button_cancel_calculate(self, event=None):
+        self._cancel_cache_calculate = True
+        if event is not None:
+            event.Skip()
+
+    def _finish_cache_calculate_ui(self, spool_label):
+        try:
+            self.button_cancel_calculate.Hide()
+            self.button_cancel_calculate.Enable(False)
+            self.button_spool.SetLabel(spool_label)
+            self.button_spool.Enable(True)
+        except RuntimeError:
+            pass
+        try:
+            self.Layout()
+            wx.YieldIfNeeded()
+        except RuntimeError:
+            pass
+
     def cache_updater(self):
         try:
             self.button_spool.Enable(False)
@@ -1806,29 +1844,40 @@ class SimulationPanel(wx.Panel, Job):
             # Control no longer existant
             return
         msg = self.button_spool.GetLabel()
-        self.button_spool.SetLabel(_("Calculating"))
-        for cut in self.cutcode:
-            if isinstance(cut, (RasterCut, PlotCut)):
-                if hasattr(cut, "_plotcache") and cut._plotcache is not None:
-                    continue
-                if isinstance(cut, RasterCut):
-                    try:
-                        cut._plotcache = list(cut.plot.plot())
-                    except MemoryError:
-                        cut._plotcache = None
-                elif isinstance(cut, PlotCut):
-                    try:
-                        cut._plotcache = list(cut.plot)
-                    except MemoryError:
-                        cut._plotcache = None
-                self.context.signal("refresh_scene", self.widget_scene.name)
-        self.reload_statistics()
+        self._cancel_cache_calculate = False
         try:
-            self.button_spool.SetLabel(msg)
-            self.button_spool.Enable(True)
+            self.button_spool.SetLabel(_("Calculating"))
+            self.button_cancel_calculate.Show()
+            self.button_cancel_calculate.Enable(True)
+            self.Layout()
+            wx.YieldIfNeeded()
         except RuntimeError:
-            # No longer existing
-            pass
+            self._finish_cache_calculate_ui(msg)
+            return
+
+        try:
+            for cut in self.cutcode:
+                wx.YieldIfNeeded()
+                if self._cancel_cache_calculate:
+                    break
+                if isinstance(cut, (RasterCut, PlotCut)):
+                    if hasattr(cut, "_plotcache") and cut._plotcache is not None:
+                        continue
+                    if isinstance(cut, RasterCut):
+                        try:
+                            cut._plotcache = list(cut.plot.plot())
+                        except MemoryError:
+                            cut._plotcache = None
+                    elif isinstance(cut, PlotCut):
+                        try:
+                            cut._plotcache = list(cut.plot)
+                        except MemoryError:
+                            cut._plotcache = None
+                    self.context.signal("refresh_scene", self.widget_scene.name)
+                    wx.YieldIfNeeded()
+            self.reload_statistics()
+        finally:
+            self._finish_cache_calculate_ui(msg)
 
     def update_fields(self):
         def len_str(value):
@@ -2025,6 +2074,7 @@ class SimulationPanel(wx.Panel, Job):
         @param args:
         @return:
         """
+        # request_refresh is thread safe
         if scene_name == "SimScene":
             self.request_refresh()
 
@@ -2099,8 +2149,8 @@ class SimulationWidget(Widget):
     done such that both progress of 0 and 1 render nothing and items begin to draw at 2.
     """
 
-    def __init__(self, scene, sim):
-        Widget.__init__(self, scene, all=False)
+    def __init__(self, scene, sim, **kwargs):
+        Widget.__init__(self, scene, all=False, **kwargs)
         self.renderer = LaserRender(self.scene.context)
         self.sim = sim
         self.matrix.post_cat(~scene.context.device.view.matrix)
@@ -2273,8 +2323,8 @@ class SimulationTravelWidget(Widget):
     within the simulation scene.
     """
 
-    def __init__(self, scene, sim):
-        Widget.__init__(self, scene, all=False)
+    def __init__(self, scene, sim, **kwargs):
+        Widget.__init__(self, scene, all=False, **kwargs)
         self.sim_matrix = ~scene.context.device.view.matrix
         self.sim = sim
         self.matrix.post_cat(~scene.context.device.view.matrix)
@@ -2406,8 +2456,8 @@ class SimReticleWidget(Widget):
     the end of the current cut object.
     """
 
-    def __init__(self, scene, sim):
-        Widget.__init__(self, scene, all=False)
+    def __init__(self, scene, sim, **kwargs ):
+        Widget.__init__(self, scene, all=False, **kwargs)
         self.sim_matrix = ~scene.context.device.view.matrix
         self.sim = sim
 
@@ -2564,8 +2614,9 @@ class Simulation(MWindow):
         yield self.panel
 
     @signal_listener("background")
-    def on_background_signal(self, origin, background):
-        if background is not None:
+    @dispatch_to_main_thread
+    def on_background_signal(self, origin, background, **kwargs):
+        if background is not None and not isinstance(background, wx.Bitmap):
             background = wx.Bitmap.FromBuffer(*background)
         self.panel.widget_scene._signal_widget(
             self.panel.widget_scene.widget_root, "background", background

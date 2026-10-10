@@ -88,10 +88,18 @@ class HatchEffectNode(Node, Suppressable):
         return f"{self.__class__.__name__}('{self.type}', {str(self._parent)})"
 
     def __copy__(self):
-        nd = self.node_dict
-        nd["stroke"] = copy(self.stroke)
-        nd["fill"] = copy(self.fill)
-        return HatchEffectNode(**nd)
+        obj = HatchEffectNode.__new__(HatchEffectNode)
+        obj.__dict__.update(self.__dict__)
+        obj._children = list()
+        obj._references = list()
+        obj._points = list()
+        obj._default_map = dict()
+        obj._parent = None
+        obj._root = None
+        # Deep-copy mutable style objects
+        obj.stroke = copy(self.stroke)
+        obj.fill = copy(self.fill)
+        return obj
 
     def get_effect_descriptor(self):
         """
@@ -120,11 +128,13 @@ class HatchEffectNode(Node, Suppressable):
         """
         try:
             pattern = descriptor.split("|")
-            # Make sure we have enough parts, check get_effect_descriptor for format    
+            # Make sure we have enough parts, check get_effect_descriptor for format
             targetlen = len(self.get_effect_descriptor().split("|"))
             while len(pattern) < targetlen:
                 # add default values for missing parameters
-                pattern.append("0")  # Default unidirectional / include_outlines to False
+                pattern.append(
+                    "0"
+                )  # Default unidirectional / include_outlines to False
             (
                 typeinfo,
                 hatchtype,
@@ -142,7 +152,12 @@ class HatchEffectNode(Node, Suppressable):
                 self.hatch_angle_delta = hatchangledelta
                 self.loops = loops
                 self.unidirectional = unidirectional == "1"
-                self.include_outlines = str(include_outlines).strip().lower() in ("1", "true", "yes", "on")
+                self.include_outlines = str(include_outlines).strip().lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                    "on",
+                )
                 self.recalculate()
         except ValueError:
             pass
@@ -259,23 +274,6 @@ class HatchEffectNode(Node, Suppressable):
 
         self.set_dirty_bounds()
 
-    # def bbox(self, transformed=True, with_stroke=False):
-    #     geometry = self.as_geometry()
-    #     if transformed:
-    #         bounds = geometry.bbox(mx=self.matrix)
-    #     else:
-    #         bounds = geometry.bbox()
-    #     xmin, ymin, xmax, ymax = bounds
-    #     if with_stroke:
-    #         delta = float(self.implied_stroke_width) / 2.0
-    #         return (
-    #             xmin - delta,
-    #             ymin - delta,
-    #             xmax + delta,
-    #             ymax + delta,
-    #         )
-    #     return xmin, ymin, xmax, ymax
-
     def default_map(self, default_map=None):
         default_map = super().default_map(default_map=default_map)
         default_map["element_type"] = "Hatch"
@@ -367,14 +365,14 @@ class HatchEffectNode(Node, Suppressable):
         path = Geomstr()
         if self._distance is None:
             self.recalculate()
-        for p in range(self.loops):
+        for p in range(int(self.loops)):
             # Choose algorithm based on selection and complexity
             if self.hatch_type == "spiral":
                 path.append(
                     Geomstr.hatch_spiral(
-                        outlines, 
-                        angle=self._angle + p * self._angle_delta, 
-                        distance=self._distance
+                        outlines,
+                        angle=self._angle + p * self._angle_delta,
+                        distance=self._distance,
                     )
                 )
             else:
@@ -424,17 +422,9 @@ class HatchEffectNode(Node, Suppressable):
     ) -> Geomstr:
         """Use the optimized Direct Grid Fill algorithm for hatching."""
         try:
-            # Import our optimized algorithm
-            import os
-            import sys
-
-            sys.path.insert(
-                0, os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            )
-            from direct_grid_fill import direct_grid_fill
-
-            return direct_grid_fill(outlines, angle, distance, unidirectional)
-        except ImportError:
+            # Use Geomstr's built-in Direct Grid algorithm
+            return Geomstr.hatch_direct_grid(outlines, angle, distance, unidirectional)
+        except AttributeError:
             # Fallback to original algorithm if direct_grid_fill not available
             return Geomstr.hatch(
                 outlines, distance=distance, angle=angle, unidirectional=unidirectional
@@ -460,7 +450,8 @@ class HatchEffectNode(Node, Suppressable):
         for o in outlines:
             if self.include_outlines:
                 yield o
-            for p in range(self.loops):
+            
+            for p in range(int(self.loops)):
                 if self.hatch_type == "spiral":
                     yield Geomstr.hatch_spiral(
                         o,

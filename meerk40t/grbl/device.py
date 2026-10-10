@@ -40,6 +40,10 @@ class GRBLDevice(Service, Status):
                 default = c.get("default")
                 if attr is not None and default is not None:
                     setattr(self, attr, default)
+            for idx in range(5):
+                for key in (f"macro_{idx}", f"macro_title_{idx}"):
+                    if hasattr(self, key):
+                        self.setting(str, key, getattr(self, key))
 
         # self.redlight_preferred = False
 
@@ -158,7 +162,9 @@ class GRBLDevice(Service, Status):
                 "type": bool,
                 "label": _("Flip Y"),
                 "tip": _(
-                    "-Y is standard for grbl but sometimes settings can flip that."
+                    "On this machine Y goes negative into the bed (0 at top). "
+                    "Leave Flip Y on with Home corner top-left, or Y jogs can "
+                    "trigger GRBL ALARM:2 (soft limit)."
                 ),
                 # Hint for translation _("Flip Axis")
                 "subsection": "_40_Flip Axis",
@@ -443,6 +449,17 @@ class GRBLDevice(Service, Status):
                 ),
             },
             {
+                "attr": "use_g1_for_power",
+                "object": self,
+                "default": False,
+                "type": bool,
+                "label": _("Use G1 before Rapid Moves"),
+                "section": "_5_Config",
+                "tip": _(
+                    "Uses G1 S0 to explicitly set the power to 0 instead of a G0 X Y S0 "
+                ),
+            },
+            {
                 "attr": "extended_alarm_clear",
                 "object": self,
                 "default": False,
@@ -469,6 +486,18 @@ class GRBLDevice(Service, Status):
                 "section": "_5_Config",
                 "tip": _(
                     "If the device has endstops, then the laser can home itself to this position = physical home ($H)"
+                ),
+            },
+            {
+                "attr": "sequential_homing",
+                "object": self,
+                "default": False,
+                "type": bool,
+                "label": _("Sequential homing ($HY then $HX)"),
+                "section": "_5_Config",
+                "tip": _(
+                    "For MKS DLC32 / top-left limits: home Y then X separately "
+                    "instead of $H. Avoids ALARM:1 stopping ~50 mm before switches."
                 ),
             },
             {
@@ -676,13 +705,14 @@ class GRBLDevice(Service, Status):
             {
                 "attr": "line_end",
                 "object": self,
-                "default": "CR",
+                "default": "LF",
                 "type": str,
                 "style": "combosmall",
                 "choices": ["CR", "LF", "CRLF"],
                 "label": _("Line Ending"),
                 "tip": _(
-                    "CR for carriage return (\\r), LF for line feed(\\n), CRLF for both"
+                    "LF (\\n) is required for MKS DLC32 SD card files. "
+                    "CR (\\r) is legacy; CRLF for some serial hosts."
                 ),
                 # Hint for translation _("Protocol")
                 "section": "_20_Protocol",
@@ -715,6 +745,108 @@ class GRBLDevice(Service, Status):
             },
         ]
         self.register_choices("protocol", choices)
+
+        # ESP3D Settings for network-connected GRBL with ESP3D-WEBUI
+        choices = [
+            {
+                "attr": "esp3d_enabled",
+                "object": self,
+                "default": False,
+                "type": bool,
+                "label": _("Enable ESP3D Upload"),
+                "tip": _(
+                    "Enable uploading G-code files to network-connected GRBL via ESP3D-WEBUI"
+                ),
+                # Hint for translation _("ESP3D Upload")
+                "section": "_45_ESP3D Upload",
+                "subsection": "_00_Connection",
+            },
+            {
+                "attr": "esp3d_host",
+                "object": self,
+                "default": "192.168.1.100",
+                "type": str,
+                "label": _("ESP3D Host"),
+                "tip": _("IP address or hostname of the ESP3D device"),
+                # Hint for translation _("ESP3D Upload")
+                "section": "_45_ESP3D Upload",
+                "subsection": "_00_Connection",
+            },
+            {
+                "attr": "esp3d_port",
+                "object": self,
+                "default": 80,
+                "type": int,
+                "label": _("ESP3D Port"),
+                "tip": _("HTTP port of the ESP3D web interface (usually 80)"),
+                "lower": 1,
+                "upper": 65535,
+                # Hint for translation _("ESP3D Upload")
+                "section": "_45_ESP3D Upload",
+                "subsection": "_00_Connection",
+            },
+            {
+                "attr": "esp3d_path",
+                "object": self,
+                "default": "/",
+                "type": str,
+                "label": _("ESP3D SD Path"),
+                "tip": _("Default path on SD card for uploaded files"),
+                # Hint for translation _("ESP3D Upload")
+                "section": "_45_ESP3D Upload",
+                "subsection": "_10_Settings",
+            },
+            {
+                "attr": "esp3d_username",
+                "object": self,
+                "default": "",
+                "type": str,
+                "label": _("Username (optional)"),
+                "tip": _("Username for ESP3D authentication (leave empty if not required)"),
+                # Hint for translation _("ESP3D Upload")
+                "section": "_45_ESP3D Upload",
+                "subsection": "_20_Authentication",
+            },
+            {
+                "attr": "esp3d_password",
+                "object": self,
+                "default": "",
+                "type": str,
+                "label": _("Password (optional)"),
+                "tip": _("Password for ESP3D authentication (leave empty if not required)"),
+                "style": "password",
+                # Hint for translation _("ESP3D Upload")
+                "section": "_45_ESP3D Upload",
+                "subsection": "_20_Authentication",
+            },
+            {
+                "attr": "esp3d_cleanup",
+                "object": self,
+                "default": True,
+                "type": bool,
+                "label": _("Cleanup Local Files"),
+                "tip": _("Automatically delete local G-code files after successful upload"),
+                # Hint for translation _("ESP3D Upload")
+                "section": "_45_ESP3D Upload",
+                "subsection": "_10_Settings",
+            },
+            {
+                "attr": "sd_export_prepare",
+                "object": self,
+                "default": True,
+                "type": bool,
+                "label": _("Prepare Plan exports for SD card"),
+                "tip": _(
+                    "After Laser → Plan → Export, patch the file for MKS DLC32 SD: "
+                    "LF line endings, M3 laser mode, remove G28. "
+                    "Home on the panel ($HY / $HX) before Execute."
+                ),
+                # Hint for translation _("ESP3D Upload")
+                "section": "_45_ESP3D Upload",
+                "subsection": "_10_Settings",
+            },
+        ]
+        self.register_choices("esp3d", choices)
 
         self.driver = GRBLDriver(self)
         self.controller = GrblController(self)
@@ -1056,21 +1188,58 @@ class GRBLDevice(Service, Status):
         def gcode_save(channel, _, filename, data=None, **kwgs):
             if filename is None:
                 raise CommandSyntaxError
+            channel(_("Exporting to {filename}...").format(filename=filename))
+            # Save the existing driver output routines so they can always be restored.
+            old_routine_1 = self.driver.out_pipe
+            old_routine_2 = self.driver.out_real
+            success = False
             try:
                 # Our lines already contain valid line endings.
                 # So we open the file with newline='' to prevent
                 # Python from altering them.
                 with open(filename, "w", newline="") as f:
                     # f.write(b"(MeerK40t)\n")
+                    self.driver.out_pipe = f.write
+                    self.driver.out_real = f.write
+              
                     driver = GRBLDriver(self)
                     job = LaserJob(filename, list(data.plan), driver=driver)
                     driver.out_pipe = f.write
                     driver.out_real = f.write
                     job.execute()
-                channel(_("Export succeeded: {filename}").format(filename=filename))
-
+                success = True
             except (PermissionError, OSError):
                 channel(_("Could not save: {filename}").format(filename=filename))
+            finally:
+                # Always restore original driver output routines.
+                self.driver.out_pipe = old_routine_1
+                self.driver.out_real = old_routine_2
+            if success:
+                if getattr(self, "sd_export_prepare", True):
+                    from .esp3d_upload import prepare_sd_gcode_file
+
+                    channel(_("Patching for MKS SD card..."))
+                    use_m3 = getattr(self, "use_m3", True)
+                    prepare_sd_gcode_file(
+                        filename,
+                        use_m3=use_m3,
+                        force_lf=True,
+                        strip_g28=True,
+                    )
+                    channel(
+                        _("Export succeeded (SD-ready): {filename}").format(
+                            filename=filename
+                        )
+                    )
+                    channel(
+                        _(
+                            "Patched for MKS SD: LF lines"
+                            + (", M3 mode" if use_m3 else "")
+                            + ", G28 removed — home ($HY / $HX) before Execute."
+                        )
+                    )
+                else:
+                    channel(_("Export succeeded: {filename}").format(filename=filename))
 
         @self.console_command(
             "grblinterpreter", help=_("activate the grbl interpreter.")

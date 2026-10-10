@@ -88,6 +88,7 @@ from .propertypanels.wobbleproperty import WobblePropertyPanel
 from .simpleui import SimpleUI
 from .simulation import Simulation
 from .tips import Tips
+from .batchrun import BatchRunWindow
 from .wordlisteditor import WordlistEditor
 from .wxmmain import MeerK40t
 
@@ -462,7 +463,6 @@ class wxMeerK40t(wx.App, Module):
         self.supported_languages = supported_languages
         # for idx, (lang, name, wxlang) in enumerate(supported_languages):
         #     print (f"Language #{idx:02d} : {lang} - {name}")
-        import meerk40t.gui.icons as icons
 
         self.timer = wx.Timer(self, id=wx.ID_ANY)
         self.Bind(wx.EVT_TIMER, context._kernel.scheduler_main, self.timer)
@@ -473,8 +473,7 @@ class wxMeerK40t(wx.App, Module):
         # except AttributeError:
         #     res = wx.SystemSettings().GetColour(wx.SYS_COLOUR_WINDOW)[0] < 127
         Module.__init__(self, context, path)
-        theme = Themes(kernel=context._kernel)
-        icons.DARKMODE = theme.dark
+  
         self.locale = None
         self.Bind(wx.EVT_CLOSE, self.on_app_close)
         self.Bind(wx.EVT_QUERY_END_SESSION, self.on_app_close)  # MAC DOCK QUIT.
@@ -506,6 +505,119 @@ class wxMeerK40t(wx.App, Module):
         wx.ToolTip.SetAutoPop(autopop_ms)
         wx.ToolTip.SetDelay(delay_ms)
         wx.ToolTip.SetReshow(0)
+        self.context.setting(bool, "ribbon_verbose_hover_help", True)
+
+    def _get_usb_config_instructions(self):
+        """Get the technical USB configuration instructions.
+        
+        Returns:
+            str: The USB device configuration steps
+        """
+        instructions = (
+            '# MeerK40t USB Device Configuration Instructions' ,
+            '# 1) Create file: /etc/udev/rules.d/99-meerk40t.rules',
+            '# 2) Add the following lines to the file:',
+            '# CH341 USB-to-serial chips (used by Lihuiyu laser controllers)',
+            'SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="*", MODE="0666"',
+            '# FTDI USB-to-serial chips (used by Ruida laser controllers)',
+            'SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="*", MODE="0666"',
+            '# BJJCZ galvo controllers',
+            'SUBSYSTEM=="usb", ATTR{idVendor}=="9588", ATTR{idProduct}=="*", MODE="0666"',
+            '# GSI Group galvo controllers',
+            'SUBSYSTEM=="usb", ATTR{idVendor}=="28e9", ATTR{idProduct}=="*", MODE="0666"',
+            '# Philips chips (used by Newly controllers)',
+            'SUBSYSTEM=="usb", ATTR{idVendor}=="0471", ATTR{idProduct}=="*", MODE="0666"',
+            '# 3) Commands to apply the rules:',
+            'sudo udevadm control --reload-rules && sudo udevadm trigger',
+            'sudo usermod -a -G dialout $USER',
+        )
+        return "\n".join(instructions)
+
+    def _show_sudo_warning(self):
+        """Show warning dialog when running as root/sudo on Linux."""
+        # Check if user has suppressed this warning
+        suppress_warning = self.context.setting(bool, "suppress_sudo_warning", False)
+        if suppress_warning:
+            return
+            
+        # Build the full warning message with instructions
+        instructions = self._get_usb_config_instructions()
+        message = _(
+            "WARNING: Running MeerK40t as root/administrator!\n\n" +
+            "Running MeerK40t with elevated privileges (sudo/admin mode) may lead to unexpected behavior and is not recommended.\n\n" +
+            "Potential issues:\n" +
+            "• File permissions may be set incorrectly\n" +
+            "• Configuration files may not be accessible to regular users\n" +
+            "• USB device access may not work properly\n" + 
+            "• System stability may be affected\n\n" +
+            "USB Device Configuration:\n" +
+            "To access USB devices without sudo, you can configure udev rules:"
+        ) + "\n\n" + instructions +  "\n\n" + _("It is strongly recommended to run MeerK40t as a regular user instead of using sudo.")
+
+        # Create a custom dialog with checkbox and copy button
+        dlg = wx.Dialog(None, title=_("Administrator/Root Warning"), 
+                       style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        
+        # Main sizer
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Icon and message
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        icon = wx.ArtProvider.GetBitmap(wx.ART_WARNING, wx.ART_MESSAGE_BOX, (48, 48))
+        icon_ctrl = wx.StaticBitmap(dlg, wx.ID_ANY, icon)
+        hbox.Add(icon_ctrl, 0, wx.ALL, 10)
+        
+        text_ctrl = wx.TextCtrl(dlg, wx.ID_ANY, message, 
+                               style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        text_ctrl.SetMinSize((500, 300))
+        hbox.Add(text_ctrl, 1, wx.EXPAND | wx.ALL, 10)
+        main_sizer.Add(hbox, 1, wx.EXPAND)
+        
+        # Checkbox for suppressing warning
+        suppress_cb = wx.CheckBox(dlg, wx.ID_ANY, _("Don't show this warning again"))
+        main_sizer.Add(suppress_cb, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # Buttons
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        copy_btn = wx.Button(dlg, wx.ID_ANY, _("Copy Instructions"))
+        copy_btn.Bind(wx.EVT_BUTTON, lambda evt: self._copy_instructions_to_clipboard())
+        button_sizer.Add(copy_btn, 0, wx.ALL, 5)
+        
+        button_sizer.AddStretchSpacer()
+        
+        ok_btn = wx.Button(dlg, wx.ID_OK, _("OK"))
+        ok_btn.SetDefault()
+        button_sizer.Add(ok_btn, 0, wx.ALL, 5)
+        
+        main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        
+        dlg.SetSizer(main_sizer)
+        dlg.Layout()
+        dlg.Fit()
+        
+        # Show dialog
+        result = dlg.ShowModal()
+        
+        # Save suppression setting if checked
+        if suppress_cb.GetValue():
+            self.context.suppress_sudo_warning = True
+            
+        dlg.Destroy()
+
+    def _copy_instructions_to_clipboard(self):
+        # Copy the USB configuration instructions to clipboard.
+        content = self._get_usb_config_instructions()
+
+        if wx.TheClipboard.Open():
+            wx.TheClipboard.SetData(wx.TextDataObject(content))
+            wx.TheClipboard.Close()
+            # Show feedback
+            wx.MessageBox(_("Instructions copied to clipboard!"), 
+                         _("Success"), wx.OK | wx.ICON_INFORMATION)
+        else:
+            wx.MessageBox(_("Failed to access clipboard."), 
+                         _("Error"), wx.OK | wx.ICON_ERROR)
 
     def on_app_close(self, event=None):
         try:
@@ -521,6 +633,10 @@ class wxMeerK40t(wx.App, Module):
         self.context.setting(bool, "single_instance_only", True)
         if self.context.kernel._was_restarted:
             return True
+        # Check for sudo/root on Linux and show warning
+        if platform.system() == "Linux" and os.geteuid() == 0:
+            self._show_sudo_warning()
+
         if self.context.single_instance_only and self.instance.IsAnotherRunning():
             dlg = wx.MessageDialog(
                 None,
@@ -819,7 +935,13 @@ class wxMeerK40t(wx.App, Module):
         @kernel.console_command("refresh", help=_("Refresh the main wxMeerK40 window"))
         def scene_refresh(command, channel, _, **kwargs):
             context = kernel.root
+            channel(_("Invalidating caches..."))
+            context.elements.invalidate()
+            channel(_("Invalidating layers..."))
+            context.signal("invalidate_layer", "all")
+            channel(_("Refreshing scene..."))
             context.signal("refresh_scene", "Scene")
+            channel(_("Rebuilding tree..."))
             context.signal("rebuild_tree")
             channel(_("Refreshed."))
 
@@ -1003,6 +1125,7 @@ class wxMeerK40t(wx.App, Module):
         kernel.register("window/About", About)
         kernel.register("window/Keymap", Keymap)
         kernel.register("window/Wordlist", WordlistEditor)
+        kernel.register("window/BatchRun", BatchRunWindow)
         kernel.register("window/MatManager", MaterialManager)
         kernel.register("window/Navigation", Navigation)
         kernel.register("window/Notes", Notes)
@@ -1184,7 +1307,8 @@ class wxMeerK40t(wx.App, Module):
 
             def crash_value(variable, dtype):
                 return dtype(variable)
-
+            
+            channel(f"Intentionally crashing with type: {crashtype}")
             if crashtype is None:
                 crashtype = "dividebyzero"
             crashtype = crashtype.lower()
@@ -1466,6 +1590,17 @@ def handleGUIException(exc_type, exc_value, exc_traceback):
             variable_info += f"[{source}]:\n" + _variable_summary(frame.f_locals)
     except Exception:
         pass
+
+    # Always surface the crash on the terminal (stderr), regardless of
+    # whether the crash-log file below can be written.
+    try:
+        sys.stderr.write(error_log)
+        if variable_info:
+            sys.stderr.write(variable_info)
+        sys.stderr.flush()
+    except Exception:
+        pass
+
     try:
         filename = f"MeerK40t-{datetime.now():%Y-%m-%d_%H_%M_%S}.txt"
     except Exception:  # I already crashed once, if there's another here just ignore it.
@@ -1477,23 +1612,20 @@ def handleGUIException(exc_type, exc_value, exc_traceback):
                 file.write(error_log)
                 if variable_info:
                     file.write(variable_info)
-                print(error_log)
         except PermissionError:
             filename = os.path.join(get_safe_path(APPLICATION_NAME), filename)
             with open(filename, "w", encoding="utf8") as file:
                 file.write(error_log)
                 if variable_info:
                     file.write(variable_info)
-                print(error_log)
     except Exception:
         # I already crashed once, if there's another here just ignore it.
         pass
 
     # Ask to send file.
     message = _(
-        """The bad news is that MeerK40t encountered a crash, and the developers apologise for this bug!
-
-The good news is that you can help us fix this bug by anonymously sending us the crash details."""
+        "The bad news is that MeerK40t encountered a crash, and the developers apologise for this bug!\n\n" +
+        "The good news is that you can help us fix this bug by anonymously sending us the crash details."
     )
     message += "\n" + _(
         "Only the crash details below are sent. No data from your MeerK40t project is sent. No "

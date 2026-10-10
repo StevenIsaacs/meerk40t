@@ -274,12 +274,17 @@ class LiveLightJob:
         """
         if not self.listen:
             return
+        # Deletion fires element_removed/tree_changed. Without them a
+        # deleted shape keeps being traced by the live light job.
         for method in (
             "emphasized",
             "modified_by_tool",
             "updating",
             "view;realized",
             "update_group_labels",
+            "element_property_reload",
+            "element_removed",
+            "tree_changed",
         ):
             if start:
                 self.service.listen(method, self.on_emphasis_changed)
@@ -550,4 +555,6 @@ class LiveLightJob:
         # if not elements:
         #     elements = list(self.service.elements.elems())
         #     self.source = "elements"
+        # Remove entries where the hidden flag is set
+        elements = [e for e in elements if not getattr(e, "hidden", False)]
         return elements

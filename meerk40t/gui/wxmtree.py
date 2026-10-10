@@ -3,11 +3,11 @@ from wx import aui
 
 from meerk40t.core.elements.element_types import elem_nodes, op_nodes
 
-from ..core.units import Length
-from ..kernel import signal_listener
-from ..svgelements import Color
-from .basicops import BasicOpPanel
-from .icons import (
+from meerk40t.core.units import Length
+from meerk40t.kernel import signal_listener
+from meerk40t.svgelements import Color
+from meerk40t.gui.basicops import BasicOpPanel
+from meerk40t.gui.icons import (
     icon_bell,
     icon_bmap_text,
     icon_canvas,
@@ -42,15 +42,17 @@ from .icons import (
     icons8_lock,
     icons8_r_white,
 )
-from .laserrender import DRAW_MODE_ICONS, LaserRender, swizzlecolor
-from .mwindow import MWindow
-from .wxutils import (
+from meerk40t.gui.laserrender import DRAW_MODE_ICONS, LaserRender, swizzlecolor
+from meerk40t.gui.mwindow import MWindow
+from meerk40t.gui.wxutils import (
     StaticBoxSizer,
     create_menu,
     dip_size,
     get_key_name,
     is_navigation_key,
     wxButton,
+    wxComboBox,
+    wxStaticText,
     wxTreeCtrl,
 )
 
@@ -112,6 +114,11 @@ def register_panel_tree(window, context):
         .TopDockable(False)
     )
     pane.helptext = _("Tree containing all objects")
+    for panel in (
+        basic_op,
+        wxtree,
+    ):
+        panel.Reparent(notetab)
     notetab.AddPage(basic_op, _("Burn-Operation"))
     notetab.AddPage(wxtree, _("Details"))
     notetab.SetSelection(lastpage)
@@ -153,7 +160,28 @@ class TreePanel(wx.Panel):
 
         self.setup_warn_panel()
 
+        self._material_combo_loading = False
+        self._material_sections = [""]
+        mat_row = wx.BoxSizer(wx.HORIZONTAL)
+        mat_label = wxStaticText(self, wx.ID_ANY, _("Material:"))
+        self.material_combo = wxComboBox(
+            self,
+            wx.ID_ANY,
+            choices=[_("— Load preset —")],
+            style=wx.CB_READONLY,
+        )
+        self.material_combo.SetToolTip(
+            _(
+                "Load a Material Manager preset into Operations "
+                "(replaces current operation list)"
+            )
+        )
+        mat_row.Add(mat_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
+        mat_row.Add(self.material_combo, 1, wx.EXPAND | wx.RIGHT, 4)
+        self.material_combo.Bind(wx.EVT_COMBOBOX, self.on_material_combo_select)
+
         main_sizer = wx.BoxSizer(wx.VERTICAL)
+        main_sizer.Add(mat_row, 0, wx.EXPAND | wx.TOP, 4)
         main_sizer.Add(self.wxtree, 1, wx.EXPAND, 0)
         main_sizer.Add(self.warn_panel, 0, wx.EXPAND, 0)
         self.SetSizer(main_sizer)
@@ -163,6 +191,72 @@ class TreePanel(wx.Panel):
         self._keybind_channel = self.context.channel("keybinds")
 
         self.context.signal("rebuild_tree", "all")
+        self.refresh_material_combo_list()
+
+    def _material_preset_label(self, section, opinfo):
+        material_name = opinfo.get("material", "")
+        material_title = opinfo.get("title", "")
+        material_thickness = opinfo.get("thickness", "")
+        if material_title == "":
+            if material_name:
+                material_title = material_name
+            elif section == "_default":
+                material_title = _("Generic Defaults")
+            elif section.startswith("_default_"):
+                material_title = _("Default for {dev}").format(dev=section[9:])
+            else:
+                material_title = section.replace("_", " ")
+        parts = []
+        if material_name:
+            parts.append(material_name)
+        if material_thickness:
+            parts.append(material_thickness)
+        if material_title and material_title not in parts:
+            parts.append(material_title)
+        return " — ".join(parts) if parts else section.replace("_", " ")
+
+    def refresh_material_combo_list(self):
+        if not hasattr(self, "material_combo"):
+            return
+        self._material_combo_loading = True
+        choices = [_("— Load preset —")]
+        sections = [""]
+        entries = []
+        elems = self.context.elements
+        elems.op_data.read_configuration()
+        for section in elems.op_data.section_set():
+            if section.startswith("previous"):
+                continue
+            opinfo = elems.load_persistent_op_info(section)
+            entries.append((section, self._material_preset_label(section, opinfo)))
+        entries.sort(key=lambda e: e[1].lower())
+        for section, label in entries:
+            sections.append(section)
+            choices.append(label)
+        self._material_sections = sections
+        self.material_combo.Set(choices)
+        self.material_combo.SetSelection(0)
+        self._material_combo_loading = False
+
+    def on_material_combo_select(self, event):
+        if self._material_combo_loading:
+            return
+        idx = self.material_combo.GetSelection()
+        if idx <= 0 or idx >= len(self._material_sections):
+            return
+        opname = self._material_sections[idx]
+        self.context(f"material load {opname}\n")
+        elems = self.context.elements
+        if elems.update_statusbar_on_material_load:
+            op_list, op_info = elems.load_persistent_op_list(opname)
+            if len(op_list) > 0:
+                elems.default_operations = list(op_list)
+                elems.default_operations_title = elems._get_default_list_title(op_info)
+                elems.default_operation_info = dict(op_info)
+                elems.signal("default_operations")
+        self._material_combo_loading = True
+        self.material_combo.SetSelection(0)
+        self._material_combo_loading = False
 
     def setup_warn_panel(self):
         def fix_unassigned_create(event):
@@ -342,7 +436,7 @@ class TreePanel(wx.Panel):
         # probably there is an issue there, but we use the opportunity not
         # only to catch these but to establish a forced delete via ctrl-delete as well
 
-        if keyvalue == "delete":
+        if keyvalue in ("delete", "numpad_delete"):
             self.context("tree selected delete\n")
             return
         if keyvalue == "ctrl+delete":
@@ -363,7 +457,7 @@ class TreePanel(wx.Panel):
                 self._keybind_channel(f"Tree key_up: {keyvalue} was unbound.")
 
     def pane_show(self):
-        pass
+        self.refresh_material_combo_list()
 
     def pane_hide(self):
         pass
@@ -472,6 +566,7 @@ class TreePanel(wx.Panel):
         if target is None:
             target = "all"
         self.shadow_tree.rebuild_tree(source="signal", target=target)
+        self.refresh_material_combo_list()
 
     @signal_listener("refresh_tree")
     def on_refresh_tree_signal(self, origin, nodes=None, *args):
@@ -483,35 +578,65 @@ class TreePanel(wx.Panel):
         @param args:
         @return:
         """
+        if self.shadow_tree.wxtree is None:
+            return
         self.shadow_tree.cache_hits = 0
         self.shadow_tree.cache_requests = 0
-        self.shadow_tree.refresh_tree(source=f"signal_{origin}")
-        if nodes is not None:
-            if isinstance(nodes, (tuple, list)):
-                # All Standard nodes first
-                for node in nodes:
-                    if (
-                        node is not None
-                        and node._item is not None
-                        and node.type.startswith("elem ")
-                    ):
-                        self.shadow_tree.set_icon(node, force=True)
-                # Then all others
-                for node in nodes:
-                    if (
-                        node is not None
-                        and node._item is not None
-                        and not node.type.startswith("elem ")
-                    ):
-                        self.shadow_tree.set_icon(node, force=True)
-                # Show the first node, but if that's the root node then ignore stuff
-                node = nodes[0] if len(nodes) > 0 else None
-            else:
-                node = nodes
-                self.shadow_tree.set_icon(node, force=True)
+        if nodes is None:
+            self.shadow_tree.refresh_tree(source=f"signal_{origin}")
+
+            return
+
+        if isinstance(nodes, (tuple, list)):
+            if len(nodes) == 0:
+                self.shadow_tree.refresh_tree(source=f"signal_{origin}")
+                return
+            # full_refresh = len(nodes) > 250
+            # if full_refresh:
+            #     self.shadow_tree.refresh_tree(source=f"signal_{origin}")
+            elem_nodes = []
+            other_nodes = []
+            for node in nodes:
+                if node is None or node._item is None:
+                    continue
+                if node.type.startswith("elem "):
+                    elem_nodes.append(node)
+                else:
+                    other_nodes.append(node)
+            self.shadow_tree.wxtree.Freeze()
+            try:
+                for node in elem_nodes:
+                    self.shadow_tree.set_icon(node, force=True)
+                    self.shadow_tree.set_enhancements(node)
+                for node in other_nodes:
+                    self.shadow_tree.set_icon(node, force=True)
+                    self.shadow_tree.set_enhancements(node)
+            finally:
+                self.shadow_tree.wxtree.Thaw()
             rootitem = self.shadow_tree.wxtree.GetRootItem()
-            if node is not None and node._item is not None and node._item != rootitem:
-                self.shadow_tree.wxtree.EnsureVisible(node._item)
+            visible_node = None
+            for node in nodes:
+                if node is None or node._item is None or node._item == rootitem:
+                    continue
+                if getattr(node, "selected", False):
+                    visible_node = node
+                    break
+                if visible_node is None:
+                    visible_node = node
+            if visible_node is not None:
+                self.shadow_tree.wxtree.EnsureVisible(visible_node._item)
+        else:
+            node = nodes
+            if node is not None and node._item is not None:
+                self.shadow_tree.wxtree.Freeze()
+                try:
+                    self.shadow_tree.set_icon(node, force=True)
+                    self.shadow_tree.set_enhancements(node)
+                finally:
+                    self.shadow_tree.wxtree.Thaw()
+                rootitem = self.shadow_tree.wxtree.GetRootItem()
+                if node._item is not None and node._item != rootitem:
+                    self.shadow_tree.wxtree.EnsureVisible(node._item)
 
     @signal_listener("freeze_tree")
     def on_freeze_tree_signal(self, origin, status=None, *args):
@@ -651,6 +776,7 @@ class ShadowTree:
         self.cache_requests = 0
         self.color_cache = {}
         self.formatter_cache = {}
+        self._tree_translation_cache = {}
         self._too_big = False
         self.refresh_tree_counter = 0
         self._last_hover_item = None
@@ -1283,13 +1409,14 @@ class ShadowTree:
 
         def rebuild_items(target):
             if target == "all":
-                if self.tree_images is not None:
-                    self.tree_images.Destroy()
-                    self.image_cache = []
+                # Swap before Destroy: wxtree holds the old ptr until SetImageList replaces it.
+                old_images = self.tree_images
                 self.tree_images = wx.ImageList()
                 self.tree_images.Create(width=self.iconsize, height=self.iconsize)
-
                 self.wxtree.SetImageList(self.tree_images)
+                self.image_cache = []
+                if old_images is not None:
+                    old_images.Destroy()
             if target == "regmarks":
                 elemtree = self.elements.reg_branch
             elif target == "operations":
@@ -1347,13 +1474,21 @@ class ShadowTree:
         startnode = self.elements._tree._item
 
         def expand_leaf(snode):
+            # Snapshot children before Expand to avoid cookie invalidation mid-walk.
+            children = []
             child, cookie = self.wxtree.GetFirstChild(snode)
             while child.IsOk():
+                children.append(child)
+                child, cookie = self.wxtree.GetNextChild(snode, cookie)
+            for child in children:
+                if not child.IsOk():
+                    continue
                 node = self.wxtree.GetItemData(child)
+                if node is None:
+                    continue
                 if node.expanded:
                     self.wxtree.Expand(child)
                 expand_leaf(child)
-                child, cookie = self.wxtree.GetNextChild(snode, cookie)
 
         expand_leaf(startnode)
         self.elements.signal("warn_state_update")
@@ -1726,15 +1861,14 @@ class ShadowTree:
         return image_id
 
     def update_op_labels(self):
-        startnode = self.elements.get(type="branch ops")._item
-        if startnode is None:
-            # Branch op never populated the tree, we cannot update sublayer.
+        # Walk Python op_branch instead of wxTree; GetItemData on stale handles segfaults.
+        op_branch = self.elements.get(type="branch ops")
+        if op_branch is None:
             return
-        child, cookie = self.wxtree.GetFirstChild(startnode)
-        while child.IsOk():
-            node = self.wxtree.GetItemData(child)  # Make sure the map is updated...
+        for node in list(op_branch.children):
+            if node is None or getattr(node, "_item", None) is None:
+                continue
             self.update_decorations(node=node, force=True)
-            child, cookie = self.wxtree.GetNextChild(startnode, cookie)
 
     def update_group_labels(self, src):
         # print(f"group_labels: {src}")
@@ -1752,6 +1886,7 @@ class ShadowTree:
 
     def reset_formatter_cache(self):
         self.formatter_cache.clear()
+        self._tree_translation_cache.clear()
 
     def update_decorations(self, node, force=False):
         """
@@ -1768,48 +1903,67 @@ class ShadowTree:
                     text = node._formatter
                 except AttributeError:
                     text = "{element_type}:{id}"
-            # Just for the optical impression (who understands what a "Rect: None" means),
-            # let's replace some of the more obvious ones...
+
+            device = self.context.device
             mymap = node.default_map()
-            # We change power to either ppi or percent
+
             if "power" in mymap and "ppi" in mymap and "percent" in mymap:
-                self.context.device.setting(
-                    bool, "use_percent_for_power_display", False
-                )
-                if self.context.device.use_percent_for_power_display:
+                try:
+                    use_percent = device.use_percent_for_power_display
+                except AttributeError:
+                    use_percent = device.setting(
+                        bool, "use_percent_for_power_display", False
+                    )
+                if use_percent:
                     mymap["power"] = mymap["percent"]
-            if "speed" in mymap and "speed_mm_min" in mymap:
-                self.context.device.setting(bool, "use_mm_min_for_speed_display", False)
-                if self.context.device.use_mm_min_for_speed_display:
-                    text = text.replace("mm/s", "mm/min")
-                    mymap["speed"] = mymap["speed_mm_min"]
+
+            speed_key = "speed"
+            if speed_key in mymap and "speed_mm_min" in mymap:
+                try:
+                    use_mm_min = device.use_mm_min_for_speed_display
+                except AttributeError:
+                    use_mm_min = device.setting(
+                        bool, "use_mm_min_for_speed_display", False
+                    )
+                if use_mm_min:
+                    if "mm/s" in text:
+                        text = text.replace("mm/s", "mm/min")
+                    mymap[speed_key] = mymap["speed_mm_min"]
                     mymap["speed_unit"] = "mm/min"
                 else:
                     mymap["speed_unit"] = "mm/s"
-            for key in mymap:
-                if hasattr(node, key) and key in mymap and mymap[key] == "None":
-                    if getattr(node, key) is None:
+
+            sentinel = object()
+            node_dict = getattr(node, "__dict__", {})
+            for key, value in mymap.items():
+                if value == "None":
+                    attr = node_dict.get(key, sentinel)
+                    if attr is sentinel:
+                        attr = getattr(node, key, None)
+                    if attr is None:
                         mymap[key] = "-"
-            # There are a couple of translatable entries,
-            # to make sure we don't get an unwanted translation we add
-            # a special pattern to it
-            translatable = (
-                "element_type",
-                "enabled",
-            )
+
+            translatable = ("element_type", "enabled")
+            translation_cache = self._tree_translation_cache
             pattern = "_TREE_"
-            for key in mymap:
-                if key in translatable:
-                    # Original value
-                    std = mymap[key]
-                    value = _(pattern + std)
-                    if not value.startswith(pattern):
-                        mymap[key] = value
+            for key in translatable:
+                std = mymap.get(key)
+                if not std:
+                    continue
+                translated = translation_cache.get(std)
+                if translated is None:
+                    candidate = _(pattern + std)
+                    if candidate.startswith(pattern):
+                        translated = std
+                    else:
+                        translated = candidate
+                    translation_cache[std] = translated
+                mymap[key] = translated
+
             try:
-                res = text.format_map(mymap)
+                return text.format_map(mymap)
             except (ValueError, KeyError):
-                res = text
-            return res
+                return text
 
         def get_formatter(nodetype):
             if nodetype not in self.formatter_cache:
