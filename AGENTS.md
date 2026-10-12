@@ -17,6 +17,20 @@ See `NOTES.md` for current device stability status.
 
 ---
 
+## Subdirectory Instructions
+
+Some subdirectories contain their own `AGENTS.md` with additional rules that
+override this file for work in that subtree. opencode does NOT load these
+automatically and does NOT parse file references in this file.
+
+CRITICAL: Before editing, creating, or deleting any file under a path listed
+below, use the Read tool to load that subdirectory's `AGENTS.md` first and treat
+its contents as mandatory.
+
+- `meerk40t/ruida_pa/` -> read `meerk40t/ruida_pa/AGENTS.md`
+
+---
+
 ## Quick Commands
 
 ```bash
@@ -123,6 +137,7 @@ meerk40t/
 │   ├── grbl/            # GRBL driver
 │   ├── lihuiyu/         # K40 (Lihuiyu) driver
 │   ├── ruida/           # Ruida driver
+│   ├── ruida_pa/        # RuidaPA driver -- see Subdirectory Instructions above
 │   ├── moshi/           # Moshiboard driver
 │   ├── newly/           # Newly driver
 │   ├── balormk/         # Balor galvo driver
