@@ -45,7 +45,9 @@ class ConnectionPanel(ScrolledPanel):
 
         # --- Driver mode ---
         sizer_driver = StaticBoxSizer(self, wx.ID_ANY, _("Driver Mode"), wx.VERTICAL)
-        self.radio_direct = wx.RadioButton(self, wx.ID_ANY, _("Direct"))
+        self.radio_direct = wx.RadioButton(
+            self, wx.ID_ANY, _("Direct"), style=wx.RB_GROUP
+        )
         self.radio_rpc = wx.RadioButton(self, wx.ID_ANY, _("RPC/TUI"))
         self.radio_direct.SetValue(self.service.driver_mode != "rpc")
         self.radio_rpc.SetValue(self.service.driver_mode == "rpc")
@@ -57,7 +59,9 @@ class ConnectionPanel(ScrolledPanel):
 
         # --- Connection mode ---
         sizer_mode = StaticBoxSizer(self, wx.ID_ANY, _("Connection Mode"), wx.VERTICAL)
-        self.radio_auto = wx.RadioButton(self, wx.ID_ANY, _("Auto (USB preferred)"))
+        self.radio_auto = wx.RadioButton(
+            self, wx.ID_ANY, _("Auto (USB preferred)"), style=wx.RB_GROUP
+        )
         self.radio_network = wx.RadioButton(self, wx.ID_ANY, _("Network"))
         self.radio_usb = wx.RadioButton(self, wx.ID_ANY, _("USB"))
         for rb, mode in (
@@ -76,7 +80,7 @@ class ConnectionPanel(ScrolledPanel):
         sizer_proto = StaticBoxSizer(
             self, wx.ID_ANY, _("Network Protocol"), wx.HORIZONTAL
         )
-        self.radio_udp = wx.RadioButton(self, wx.ID_ANY, _("UDP"))
+        self.radio_udp = wx.RadioButton(self, wx.ID_ANY, _("UDP"), style=wx.RB_GROUP)
         self.radio_tcp = wx.RadioButton(self, wx.ID_ANY, _("TCP"))
         self.radio_udp.SetValue(self.service.network_protocol != "tcp")
         self.radio_tcp.SetValue(self.service.network_protocol == "tcp")
