@@ -4,6 +4,8 @@ RuidaPA Device
 Ruida device interfacing through the ``ruida-pa`` GlueScript driver API.
 """
 
+import logging
+
 from meerk40t.core.view import View
 from meerk40t.device.devicechoices import get_effect_choices, get_operation_choices
 from meerk40t.kernel import CommandSyntaxError, Service, signal_listener
@@ -13,6 +15,9 @@ from ..core.spoolers import Spooler
 from ..core.units import Length, uM_PER_INCH
 from ..device.mixins import Status
 from .driver import RuidaPADriver
+from .mk_adapter import rpc_support_available
+
+logger = logging.getLogger(__name__)
 
 
 class RuidaPADevice(Service, Status):
@@ -304,14 +309,30 @@ class RuidaPADevice(Service, Status):
 
         self.setting(bool, "connected", False)
 
+        if self.driver_mode == "rpc" and not rpc_support_available():
+            message = _(
+                "ruida-pa RPC support is unavailable; switch Driver Mode to Direct."
+            )
+            logger.warning(message)
+            try:
+                self.kernel.channel("console")(message)
+            except Exception:
+                pass
+
         @self.console_command(
             "connect",
             hidden=True,
             help=_("Connects to the device."),
         )
         def device_connect(command, channel, _, data=None, **kwargs):
-            result = self.driver.adapter.start()
+            try:
+                result = self.driver.adapter.start()
+            except Exception as e:
+                channel(_("Connection failed: {}").format(e))
+                self.update_connect_status()
+                return
             channel(_("Connection started: {}").format("True" if result else "False"))
+            self.update_connect_status()
 
         @self.console_command(
             "disconnect",

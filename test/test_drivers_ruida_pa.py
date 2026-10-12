@@ -259,5 +259,46 @@ class TestDeviceUnits(unittest.TestCase):
         return ruida_pa_driver.plugin
 
 
+class TestRpcSupport(unittest.TestCase):
+    """RPC (rpyc) support detection and graceful failure reporting."""
+
+    def test_rpc_support_available_reflects_import(self):
+        from meerk40t.ruida_pa import mk_adapter
+
+        self.assertEqual(
+            mk_adapter.rpc_support_available(), mk_adapter.RpcRdDriver is not None
+        )
+        self.assertIsInstance(mk_adapter.rpc_support_available(), bool)
+
+    def test_connect_rpc_unavailable_reports_gracefully(self):
+        from unittest import mock
+
+        from meerk40t.ruida_pa import mk_adapter
+
+        kernel = bootstrap.bootstrap(plugins=[self._ruida_pa_plugin()])
+        try:
+            kernel.console("service device start -i ruida_pa 0\n")
+            device = kernel.device
+            messages = []
+            kernel.channel("console").watch(lambda m: messages.append(m))
+            device.driver_mode = "rpc"
+            with mock.patch.object(mk_adapter, "RpcRdDriver", None), mock.patch.object(
+                mk_adapter, "_rpc_import_error", ImportError("no rpyc")
+            ):
+                device("connect\n")
+            self.assertTrue(
+                any("Connection failed" in str(m) for m in messages),
+                messages,
+            )
+        finally:
+            kernel()
+
+    @staticmethod
+    def _ruida_pa_plugin():
+        from meerk40t.ruida_pa import plugin as ruida_pa_driver
+
+        return ruida_pa_driver.plugin
+
+
 if __name__ == "__main__":
     unittest.main()

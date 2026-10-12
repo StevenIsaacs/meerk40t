@@ -12,6 +12,8 @@ from meerk40t.gui.mwindow import MWindow
 from meerk40t.gui.wxutils import ScrolledPanel, StaticBoxSizer, TextCtrl, wxButton
 from meerk40t.kernel import signal_listener
 
+from ..mk_adapter import rpc_support_available
+
 _ = wx.GetTranslation
 
 
@@ -51,6 +53,11 @@ class ConnectionPanel(ScrolledPanel):
         self.radio_rpc = wx.RadioButton(self, wx.ID_ANY, _("RPC/TUI"))
         self.radio_direct.SetValue(self.service.driver_mode != "rpc")
         self.radio_rpc.SetValue(self.service.driver_mode == "rpc")
+        if not rpc_support_available():
+            self.radio_rpc.Enable(False)
+            self.radio_rpc.SetToolTip(
+                _("RPC support is unavailable (rpyc / ruida-pa RPC import failed).")
+            )
         for rb, mode in ((self.radio_direct, "direct"), (self.radio_rpc, "rpc")):
             rb.Bind(wx.EVT_RADIOBUTTON, lambda e, m=mode: self._set_driver_mode(m))
         sizer_driver.Add(self.radio_direct, 0, wx.EXPAND, 0)

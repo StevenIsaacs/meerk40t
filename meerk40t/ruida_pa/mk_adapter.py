@@ -25,8 +25,16 @@ from meerk40t.core.units import Length
 
 try:
     from rpalib.rpyc_client import RpcRdDriver
-except ImportError:  # pragma: no cover
+except ImportError as e:  # pragma: no cover
     RpcRdDriver = None
+    _rpc_import_error = e
+else:
+    _rpc_import_error = None
+
+
+def rpc_support_available():
+    """Return True when ruida-pa RPC (rpyc) support is importable."""
+    return RpcRdDriver is not None
 
 
 class MKAdapter:
@@ -63,7 +71,9 @@ class MKAdapter:
     def _make_driver(self):
         if self.service.driver_mode == "rpc":
             if RpcRdDriver is None:
-                raise RuntimeError("ruida-pa RPC support (rpyc) is not installed.")
+                raise RuntimeError(
+                    f"ruida-pa RPC support is unavailable: {_rpc_import_error}"
+                )
             return RpcRdDriver(
                 host=self.service.rpc_host,
                 port=self.service.rpc_port,
