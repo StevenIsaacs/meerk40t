@@ -1,5 +1,7 @@
 """RuidaPA Configuration Window."""
 
+import platform
+
 import wx
 import wx.aui
 
@@ -27,6 +29,20 @@ def _add_text_field(sizer, parent, label, textctrl, tip=None):
     sizer.Add(row, 0, wx.EXPAND, 0)
 
 
+def _set_tooltip(ctrl, tip):
+    """Set a control tooltip, re-applying it on mouse-over so it shows on Linux."""
+    ctrl._ruida_pa_tip = tip
+    ctrl.SetToolTip(tip)
+    if platform.system() == "Linux" and not hasattr(ctrl, "_ruida_pa_tip_handler"):
+
+        def on_mouse_over(event):
+            ctrl.SetToolTip(getattr(ctrl, "_ruida_pa_tip", None))
+            event.Skip()
+
+        ctrl._ruida_pa_tip_handler = on_mouse_over
+        ctrl.Bind(wx.EVT_MOTION, on_mouse_over)
+
+
 class ConnectionPanel(ScrolledPanel):
     """
     Connection and driver-mode panel (plan §6).
@@ -51,12 +67,20 @@ class ConnectionPanel(ScrolledPanel):
             self, wx.ID_ANY, _("Direct"), style=wx.RB_GROUP
         )
         self.radio_rpc = wx.RadioButton(self, wx.ID_ANY, _("RPC/TUI"))
+        _set_tooltip(
+            self.radio_direct, _("Direct connection from MeerK40t to the controller.")
+        )
+        _set_tooltip(
+            self.radio_rpc,
+            _("Drive controller through an external ruida-pa RPC/TUI server."),
+        )
         self.radio_direct.SetValue(self.service.driver_mode != "rpc")
         self.radio_rpc.SetValue(self.service.driver_mode == "rpc")
         if not rpc_support_available():
             self.radio_rpc.Enable(False)
-            self.radio_rpc.SetToolTip(
-                _("RPC support is unavailable (rpyc / ruida-pa RPC import failed).")
+            _set_tooltip(
+                self.radio_rpc,
+                _("RPC support is unavailable (rpyc / ruida-pa RPC import failed)."),
             )
         for rb, mode in ((self.radio_direct, "direct"), (self.radio_rpc, "rpc")):
             rb.Bind(wx.EVT_RADIOBUTTON, lambda e, m=mode: self._set_driver_mode(m))
@@ -69,8 +93,23 @@ class ConnectionPanel(ScrolledPanel):
         self.radio_auto = wx.RadioButton(
             self, wx.ID_ANY, _("Auto (USB preferred)"), style=wx.RB_GROUP
         )
+        _set_tooltip(
+            self.radio_auto,
+            _("Try the USB device first, then fall back to the Network Host."),
+        )
         self.radio_network = wx.RadioButton(self, wx.ID_ANY, _("Network"))
+        _set_tooltip(
+            self.radio_network,
+            _(
+                "Connect using the Network Host address and the selected "
+                "Network Protocol."
+            ),
+        )
         self.radio_usb = wx.RadioButton(self, wx.ID_ANY, _("USB"))
+        _set_tooltip(
+            self.radio_usb,
+            _("Connect over USB using the USB Device (path or VID:PID)."),
+        )
         for rb, mode in (
             (self.radio_auto, "auto"),
             (self.radio_network, "network"),
@@ -88,7 +127,12 @@ class ConnectionPanel(ScrolledPanel):
             self, wx.ID_ANY, _("Network Protocol"), wx.HORIZONTAL
         )
         self.radio_udp = wx.RadioButton(self, wx.ID_ANY, _("UDP"), style=wx.RB_GROUP)
+        _set_tooltip(
+            self.radio_udp,
+            _("Use UDP for network communication (default for Auto/USB modes)."),
+        )
         self.radio_tcp = wx.RadioButton(self, wx.ID_ANY, _("TCP"))
+        _set_tooltip(self.radio_tcp, _("Use TCP for network communication."))
         self.radio_udp.SetValue(self.service.network_protocol != "tcp")
         self.radio_tcp.SetValue(self.service.network_protocol == "tcp")
         self.radio_udp.Bind(wx.EVT_RADIOBUTTON, lambda e: self._set_protocol("udp"))
