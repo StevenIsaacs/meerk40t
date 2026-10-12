@@ -101,7 +101,7 @@ class ConnectionPanel(ScrolledPanel):
         sizer_host = StaticBoxSizer(self, wx.ID_ANY, _("Connection"), wx.VERTICAL)
         self.text_host = TextCtrl(self, wx.ID_ANY, self.service.network_host)
         self.text_usb = TextCtrl(self, wx.ID_ANY, self.service.usb_device)
-        self.text_magic = TextCtrl(self, wx.ID_ANY, str(self.service.magic))
+        self.text_magic = TextCtrl(self, wx.ID_ANY, hex(self.service.magic))
         _add_text_field(sizer_host, self, _("Network Host"), self.text_host)
         _add_text_field(
             sizer_host,
@@ -110,7 +110,13 @@ class ConnectionPanel(ScrolledPanel):
             self.text_usb,
             _("e.g. ttyUSB0, /dev/ttyACM0, COM3, or 0403:6001"),
         )
-        _add_text_field(sizer_host, self, _("Magic"), self.text_magic)
+        _add_text_field(
+            sizer_host,
+            self,
+            _("Magic"),
+            self.text_magic,
+            _("Magic number used to encode files (hex, e.g. 0x88)"),
+        )
         main_sizer.Add(sizer_host, 0, wx.EXPAND, 0)
 
         # --- RPC fields ---
@@ -169,7 +175,10 @@ class ConnectionPanel(ScrolledPanel):
         try:
             self.service.network_host = self.text_host.GetValue()
             self.service.usb_device = self.text_usb.GetValue()
-            self.service.magic = int(self.text_magic.GetValue(), 0)
+            magic_text = self.text_magic.GetValue().strip()
+            if magic_text.lower().startswith("0x"):
+                magic_text = magic_text[2:]
+            self.service.magic = int(magic_text, 16)
             self.service.rpc_host = self.text_rpc_host.GetValue()
             self.service.rpc_port = int(self.text_rpc_port.GetValue())
             self.service.rpc_token = self.text_rpc_token.GetValue()
