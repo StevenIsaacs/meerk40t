@@ -203,5 +203,61 @@ class TestDevice(unittest.TestCase):
         return ruida_pa_driver.plugin
 
 
+class TestDeviceUnits(unittest.TestCase):
+    """Bed dimensions follow the global preferred units (Preferences -> Units)."""
+
+    def setUp(self):
+        from meerk40t.core.units import Length
+
+        self.Length = Length
+        self.kernel = bootstrap.bootstrap(plugins=[self._ruida_pa_plugin()])
+        self.kernel.console("service device start -i ruida_pa 0\n")
+        self.device = self.kernel.device
+
+    def tearDown(self):
+        self.kernel()
+
+    def test_bed_dims_expressed_in_global_units(self):
+        device = self.device
+        units = device._global_units()
+        self.assertEqual(
+            str(device.bedwidth),
+            str(self.Length("24in", preferred_units=units).preferred_length),
+        )
+        self.assertEqual(
+            str(device.bedheight),
+            str(self.Length("16in", preferred_units=units).preferred_length),
+        )
+        self.assertIn("mm", str(device.bedwidth))
+
+    def test_edit_renormalized_to_global_units(self):
+        device = self.device
+        units = device._global_units()
+        device.bedwidth = self.Length("24in").preferred_length
+        device.signal("bedwidth", device.bedwidth, device)
+        self.kernel.process_queue()
+        self.assertEqual(
+            str(device.bedwidth),
+            str(self.Length("24in", preferred_units=units).preferred_length),
+        )
+
+    def test_units_change_reexpresses(self):
+        device = self.device
+        self.kernel.root.units_name = "cm"
+        self.kernel.signal("units", "cm")
+        self.kernel.process_queue()
+        self.assertEqual(
+            str(device.bedwidth),
+            str(self.Length("24in", preferred_units="cm").preferred_length),
+        )
+        self.assertTrue(str(device.bedwidth).endswith("cm"))
+
+    @staticmethod
+    def _ruida_pa_plugin():
+        from meerk40t.ruida_pa import plugin as ruida_pa_driver
+
+        return ruida_pa_driver.plugin
+
+
 if __name__ == "__main__":
     unittest.main()

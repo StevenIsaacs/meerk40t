@@ -211,6 +211,10 @@ class RuidaPADevice(Service, Status):
         ]
         self.register_choices("bed_dim", choices)
 
+        # Express bed dimensions in the global preferred units (Preferences ->
+        # General -> Units) so the Dimensions fields display consistently.
+        self._normalize_dim_units()
+
         choices = [
             {
                 "attr": "default_power",
@@ -546,6 +550,39 @@ class RuidaPADevice(Service, Status):
             origin_y=home_dy,
         )
         self.signal("view;realized")
+
+    def _global_units(self):
+        return self.kernel.root.setting(str, "units_name", "mm")
+
+    def _express_in_units(self, value):
+        return str(Length(value, preferred_units=self._global_units()).preferred_length)
+
+    def _normalize_dim_units(self, signal=False):
+        """Re-express bed dimensions in the global preferred units."""
+        changed = []
+        for attr in ("bedwidth", "bedheight", "laserspot"):
+            value = getattr(self, attr, None)
+            if value is None:
+                continue
+            expr = self._express_in_units(value)
+            if str(value) != expr:
+                setattr(self, attr, expr)
+                changed.append(attr)
+        if signal:
+            for attr in changed:
+                self.signal(attr, getattr(self, attr))
+
+    @signal_listener("units")
+    def on_units_changed(self, origin, *args):
+        self._normalize_dim_units(signal=True)
+
+    @signal_listener("bedwidth")
+    def on_bedwidth_changed(self, origin, *args):
+        self._normalize_dim_units(signal=True)
+
+    @signal_listener("bedheight")
+    def on_bedheight_changed(self, origin, *args):
+        self._normalize_dim_units(signal=True)
 
     @property
     def current(self):
