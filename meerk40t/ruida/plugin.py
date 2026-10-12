@@ -126,4 +126,7 @@ def plugin(kernel, lifecycle=None):
     if lifecycle == "preboot":
         prefix = "ruida"
         for d in kernel.section_startswith(prefix):
+            suffix = d[len(prefix):]
+            if suffix and not suffix[0].isdigit():   # e.g. "ruida_pa" -> skip
+                continue
             kernel.root(f"service device start -p {d} {prefix}\n")
