@@ -251,7 +251,7 @@ class RuidaPADriver(Parameters):
 
     def physical_home(self):
         self.adapter.home()
-        self.adapter.home_z()
+        # self.adapter.home_z()
         self.events("Idle")
 
     def rapid_mode(self):

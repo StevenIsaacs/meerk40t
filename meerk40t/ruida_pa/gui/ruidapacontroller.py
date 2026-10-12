@@ -20,7 +20,11 @@ DISCONNECTED_COLOR = "#000000"
 class RuidaPaControllerPanel(wx.ScrolledWindow):
     def __init__(self, *args, context=None, **kwds):
         super().__init__(*args, **kwds)
+        self.context = context
         self.service = context.device
+        themes = getattr(self.service, "themes", None)
+        if themes is not None:
+            themes.set_window_colors(self)
         self.buffer = []
         self._state_color = DISCONNECTED_COLOR
 
@@ -37,6 +41,7 @@ class RuidaPaControllerPanel(wx.ScrolledWindow):
         sizer.Add(self.text_status, 1, wx.EXPAND, 0)
         self.SetSizer(sizer)
         self.Layout()
+        self.service.update_connect_status()
 
     def button_connect_clicked(self, event):
         if self.service.connected:
@@ -68,6 +73,9 @@ class RuidaPaControllerPanel(wx.ScrolledWindow):
     def pane_show(self):
         name = self.service.safe_label
         self.context.channel(f"{name}/events").watch(self.update_text)
+        self.button_connect.SetLabel(
+            _("Disconnect") if self.service.connected else _("Connect")
+        )
 
     def pane_hide(self):
         name = self.service.safe_label
