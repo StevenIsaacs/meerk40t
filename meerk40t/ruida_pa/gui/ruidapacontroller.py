@@ -174,6 +174,13 @@ class RuidaPaControllerPanel(wx.ScrolledWindow):
             _s = "Connected"
         else:
             _s = status
+        if _s == "Connected" and "(" not in status:
+            # Some sources emit a bare "Connected"; add the interface when
+            # the adapter has learned it (USB/UDP/TCP).
+            adapter = getattr(getattr(self.service, "driver", None), "adapter", None)
+            transport = getattr(adapter, "transport_type", None)
+            if transport:
+                status = f"{status} ({str(transport).upper()})"
         if _s in ["Connecting", "Connected", "Disconnected"]:
             self.button_device_connect.SetLabel(_(status))
         if self.service.connected:

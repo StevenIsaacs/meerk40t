@@ -45,12 +45,13 @@ class FakeService:
 
     def __init__(self):
         self.messages = []
+        self.signals = []
 
     def channel(self, name):
         return FakeChannel(self, name)
 
     def signal(self, *args, **kwargs):
-        pass
+        self.signals.append(args)
 
 
 class FakeCut:
@@ -229,17 +230,39 @@ class TestMockAdapter(unittest.TestCase):
 
     def test_11_status_words_emitted(self):
         self.adapter._handle_status_event("CONNECTED")
-        self.assertTrue(self.service.connected)
+        self.assertTrue(self.adapter.connected)
+        self.assertEqual(self.adapter.connected_status(), "Connected (UDP)")
         self.adapter._handle_status_event("DISCONNECTED")
-        self.assertFalse(self.service.connected)
+        self.assertFalse(self.adapter.connected)
         self.adapter._handle_status_dict({"MACHINE_STATUS_JOB_RUNNING": True})
         self.adapter._handle_status_dict({"MACHINE_STATUS_JOB_RUNNING": True})
         self.adapter._handle_status_dict({"MACHINE_STATUS_JOB_RUNNING": False})
         recorded = [m[1] for m in self.service.messages]
-        self.assertIn("Connected", recorded)
+        self.assertIn("Connected (UDP)", recorded)
         self.assertIn("Disconnected", recorded)
         self.assertEqual(recorded.count("Busy"), 1)
         self.assertEqual(recorded.count("Idle"), 1)
+        self.assertIn(("pipe;usb_status", "Connected (UDP)"), self.service.signals)
+
+    def test_12_transport_event_sets_interface(self):
+        self.adapter._handle_status_event("TRANSPORT_USB")
+        self.assertTrue(self.adapter.connected)
+        self.assertEqual(self.adapter.connected_status(), "Connected (USB)")
+
+    def test_12_transport_from_current_status(self):
+        class FakeDriver:
+            current_status = {"TRANSPORT": "TRANSPORT_TCP"}
+
+        self.adapter._driver = FakeDriver()
+        self.adapter._handle_status_event("CONNECTED")
+        self.assertEqual(self.adapter.connected_status(), "Connected (TCP)")
+
+    def test_12_interface_fallback_from_settings(self):
+        self.service.connection_mode = "usb"
+        self.assertEqual(self.adapter._interface_label(), "USB")
+        self.service.connection_mode = "network"
+        self.service.network_protocol = "tcp"
+        self.assertEqual(self.adapter._interface_label(), "TCP")
 
     def test_06_dwell_and_add_delay(self):
         self.adapter.write_header([])
@@ -401,6 +424,22 @@ class TestConnectionDriverLifecycle(unittest.TestCase):
         finally:
             kernel()
 
+    def test_connected_status_reflects_device_state(self):
+        kernel, device = self._boot()
+        try:
+            # The real device exposes `connected` as a read-only property;
+            # the status handler must not assign to it (that raised before).
+            device.driver.adapter._handle_status_event("CONNECTED")
+            self.assertTrue(device.connected)
+            self.assertEqual(
+                device.driver.adapter.connected_status(), "Connected (UDP)"
+            )
+            device.driver.adapter._handle_status_event("DISCONNECTED")
+            self.assertFalse(device.connected)
+            self.assertEqual(device.driver.adapter.connected_status(), "Disconnected")
+        finally:
+            kernel()
+
     @staticmethod
     def _ruida_pa_plugin():
         from meerk40t.ruida_pa import plugin as ruida_pa_driver
@@ -557,6 +596,13 @@ class TestControllerPanel(unittest.TestCase):
             panel.on_usb_update(device.path, "Disconnected")
             self.assertEqual(panel.button_device_connect.GetLabel(), "Disconnected")
             self.assertEqual(bg_hex(), panel.disconnected_color.upper())
+
+            device.driver.adapter.connected = True
+            device.driver.adapter.transport_type = "udp"
+            panel.update_text("Connected (UDP)")
+            panel.on_usb_update(device.path, "Connected (UDP)")
+            self.assertEqual(panel.button_device_connect.GetLabel(), "Connected (UDP)")
+            self.assertEqual(bg_hex(), panel.idle_color.upper())
 
             frame.Destroy()
             app.Destroy()

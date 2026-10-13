@@ -37,6 +37,13 @@ def rpc_support_available():
     return RpcRdDriver is not None
 
 
+_TRANSPORT_EVENTS = {
+    "TRANSPORT_UDP": "udp",
+    "TRANSPORT_TCP": "tcp",
+    "TRANSPORT_USB": "usb",
+}
+
+
 class MKAdapter:
     """
     GlueScript-based controller adapter.
@@ -191,32 +198,90 @@ class MKAdapter:
             name = event
         self._handle_status_event(name)
 
+    def _transport_from_status(self):
+        """
+        Read the active transport from the underlying driver's
+        ``current_status`` snapshot.
+
+        ruida-pa does not yet include the transport in ``current_status``; this
+        returns ``None`` until the upstream change requested in
+        ``dev/prompts/ruida-pa-transport-in-current-status.md`` lands.
+        """
+        if self._driver is None:
+            return None
+        try:
+            status = self._driver.current_status
+            if callable(status):
+                status = status()
+        except Exception:
+            return None
+        if not isinstance(status, dict):
+            return None
+        value = status.get("TRANSPORT")
+        if isinstance(value, (tuple, list)):
+            value = value[0] if value else None
+        if value is None:
+            return None
+        name = str(value).upper()
+        if "USB" in name:
+            return "usb"
+        if "TCP" in name:
+            return "tcp"
+        if "UDP" in name:
+            return "udp"
+        return None
+
+    def _interface_label(self):
+        """Return the display label ("USB"/"UDP"/"TCP") for the active link."""
+        transport = self.transport_type or self._transport_from_status()
+        if transport is None:
+            mode = getattr(self.service, "connection_mode", "auto")
+            if mode == "usb":
+                transport = "usb"
+            elif mode == "network":
+                transport = getattr(self.service, "network_protocol", "udp")
+            else:
+                # Auto: the driver prefers USB, then the network host.
+                transport = (
+                    "usb"
+                    if getattr(self.service, "usb_device", "")
+                    else getattr(self.service, "network_protocol", "udp")
+                )
+        return str(transport).upper() if transport else None
+
+    def _connected_label(self):
+        label = self._interface_label()
+        return f"Connected ({label})" if label else "Connected"
+
+    def connected_status(self):
+        """Return the ``pipe;usb_status`` text for the current state.
+
+        Includes the connected interface (e.g. ``Connected (UDP)``) when it is
+        known, and ``Disconnected`` otherwise.
+        """
+        return self._connected_label() if self.connected else "Disconnected"
+
+    def _emit_connected(self):
+        text = self._connected_label()
+        self._status_out(text)
+        self.service.signal("pipe;usb_status", text)
+
     def _handle_status_event(self, name):
         if name is None:
             return
         service = self.service
         if name in ("CONNECTED", "RECONNECTED"):
             self.connected = True
-            service.connected = True
-            self._status_out("Connected")
-            service.signal("pipe;usb_status", "Connected")
+            self._emit_connected()
         elif name in ("DISCONNECTED", "TERMINATED"):
             self.connected = False
-            service.connected = False
+            self.transport_type = None
             self._status_out("Disconnected")
             service.signal("pipe;usb_status", "Disconnected")
-        elif name == "TRANSPORT_UDP":
-            self.transport_type = "udp"
-            self._status_out("Connected")
-            service.signal("pipe;usb_status", "Connected")
-        elif name == "TRANSPORT_TCP":
-            self.transport_type = "tcp"
-            self._status_out("Connected")
-            service.signal("pipe;usb_status", "Connected")
-        elif name == "TRANSPORT_USB":
-            self.transport_type = "usb"
-            self._status_out("Connected")
-            service.signal("pipe;usb_status", "Connected")
+        elif name in _TRANSPORT_EVENTS:
+            self.transport_type = _TRANSPORT_EVENTS[name]
+            self.connected = True
+            self._emit_connected()
 
     def _handle_status_dict(self, status):
         service = self.service
@@ -249,7 +314,7 @@ class MKAdapter:
             self.job_running = running
         if "CARD_ID" in status:
             self.card_id = status["CARD_ID"][1]
-            service.signal("pipe;usb_status", "Connected")
+            service.signal("pipe;usb_status", self._connected_label())
 
     # ------------------------------------------------------------------ #
     # Job authoring (RDJob → GlueScript mapping, plan §2)

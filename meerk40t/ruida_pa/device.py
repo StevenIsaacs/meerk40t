@@ -519,9 +519,7 @@ class RuidaPADevice(Service, Status):
         self.update_connect_status()
 
     def update_connect_status(self):
-        self.signal(
-            "pipe;usb_status", "Connected" if self.connected else "Disconnected"
-        )
+        self.signal("pipe;usb_status", self.driver.adapter.connected_status())
 
     def abort_connect(self):
         pass
