@@ -1,95 +1,226 @@
-"""RuidaPA Controller / status window."""
+"""RuidaPA Controller / status window.
+
+A near copy of the reference ruida controller window
+(``meerk40t/ruida/gui/ruidacontroller.py``) with the names changed and the
+event handling adapted to the ruida-pa events channel.
+"""
+
+import threading
 
 import wx
 
+from meerk40t.gui.icons import (
+    get_default_icon_size,
+    icons8_connected,
+    icons8_disconnected,
+)
 from meerk40t.gui.mwindow import MWindow
-from meerk40t.gui.wxutils import TextCtrl, wxButton
+from meerk40t.gui.wxutils import TextCtrl, dip_size, wxButton
 from meerk40t.kernel import signal_listener
 
 _ = wx.GetTranslation
 
-SETTINGS_OUT = ("idle", "moving", "busy", "plotting", "disconnected")
-
-IDLE_COLOR = "#AAAAAA"
-BUSY_COLOR = "#FFFF00"
-MOVING_COLOR = "#E02020"
-PLOTTING_COLOR = "#0000AA"
-DISCONNECTED_COLOR = "#000000"
-
 
 class RuidaPaControllerPanel(wx.ScrolledWindow):
-    def __init__(self, *args, context=None, **kwds):
-        super().__init__(*args, **kwds)
+    def __init__(self, *args, context=None, **kwargs):
+        kwargs["style"] = kwargs.get("style", 0) | wx.TAB_TRAVERSAL
+        wx.ScrolledWindow.__init__(self, *args, **kwargs)
         self.context = context
-        self.service = context.device
-        themes = getattr(self.service, "themes", None)
+        themes = getattr(self.context, "themes", None)
         if themes is not None:
             themes.set_window_colors(self)
-        self.buffer = []
-        self._state_color = DISCONNECTED_COLOR
 
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        self.button_connect = wxButton(self, wx.ID_ANY, _("Connect"))
-        self.button_connect.Bind(wx.EVT_BUTTON, self.button_connect_clicked)
-        sizer.Add(self.button_connect, 0, wx.EXPAND, 0)
-
-        self.text_status = TextCtrl(
-            self,
-            wx.ID_ANY,
-            style=wx.TE_MULTILINE | wx.TE_READONLY,
+        font = wx.Font(
+            10,
+            wx.FONTFAMILY_TELETYPE,
+            wx.FONTSTYLE_NORMAL,
+            wx.FONTWEIGHT_NORMAL,
         )
-        sizer.Add(self.text_status, 1, wx.EXPAND, 0)
-        self.SetSizer(sizer)
-        self.Layout()
+        self.button_device_connect = wxButton(self, wx.ID_ANY, _("Connection"))
+        self.service = self.context.device
+        self._buffer = ""
+        self._buffer_lock = threading.Lock()
+        self.text_usb_log = TextCtrl(
+            self, wx.ID_ANY, "", style=wx.TE_MULTILINE | wx.TE_READONLY
+        )
+        self.text_usb_log.SetFont(font)
+
+        self.__set_properties()
+        self.__do_layout()
+
+        self.Bind(
+            wx.EVT_BUTTON, self.on_button_start_connection, self.button_device_connect
+        )
+        # end wxGlade
+        self.max = 0
+        self.state = None
+        self.disconnected_color = "#dfdf00"
+        self.idle_color = "#00ff00"
+        self.moving_color = "#008000"
+        self.busy_color = "#ff8000"
+        self.plotting_color = "#d0ffd0"
+        self.color = self.idle_color
+        self.busy = False
+        self.last_usb_status = ""
+        self.last_event_text = ""
         self.service.update_connect_status()
 
-    def button_connect_clicked(self, event):
-        if self.service.connected:
-            self.service("disconnect\n")
-        else:
-            self.service("connect\n")
+    def __set_properties(self):
+        self.button_device_connect.SetBackgroundColour(wx.Colour(102, 255, 102))
+        self.button_device_connect.SetForegroundColour(wx.BLACK)
+        self.button_device_connect.SetFont(
+            wx.Font(
+                12,
+                wx.FONTFAMILY_DEFAULT,
+                wx.FONTSTYLE_NORMAL,
+                wx.FONTWEIGHT_NORMAL,
+                0,
+                "Segoe UI",
+            )
+        )
+        self.button_device_connect.SetToolTip(
+            _("Force connection/disconnection from the device.")
+        )
+        self.button_device_connect.SetBitmap(
+            icons8_disconnected.GetBitmap(
+                use_theme=False, resize=get_default_icon_size(self.context)
+            )
+        )
+        # end wxGlade
 
-    @signal_listener("pipe;usb_status")
-    def on_usb_update(self, origin, *args):
-        if origin != self.service.path:
-            return
-        if args and len(args) > 0:
-            if args[0] == "Connected":
-                self.button_connect.SetLabel(_("Disconnect"))
-            else:
-                self.button_connect.SetLabel(_("Connect"))
+    def __do_layout(self):
+        sizer_1 = wx.BoxSizer(wx.VERTICAL)
+        connection_controller = wx.BoxSizer(wx.VERTICAL)
+        connection_controller.Add(self.button_device_connect, 0, wx.EXPAND, 0)
+        sizer_1.Add(connection_controller, 0, wx.EXPAND, 0)
+        static_line_2 = wx.StaticLine(self, wx.ID_ANY)
+        static_line_2.SetMinSize(dip_size(self, 483, 5))
+        sizer_1.Add(static_line_2, 0, wx.EXPAND, 0)
+        sizer_1.Add(self.text_usb_log, 5, wx.EXPAND, 0)
+        self.SetSizer(sizer_1)
+        self.Layout()
 
-    def update_text(self, data):
-        self.buffer.append(data)
-        if len(self.buffer) > 1000:
-            self.buffer.pop(0)
+    def update_text(self, text):
+        with self._buffer_lock:
+            if isinstance(text, str):
+                if text == self.last_event_text:
+                    return
+                self.last_event_text = text
+                self._buffer += f"{text}\n"
+                _txt = text.strip()
+                _lower = _txt.lower()
+                _color_change = False
+                # Note: "disconnected" must be checked before "connected",
+                # since the former textually contains the latter.
+                if "disconnected" in _lower:
+                    self.busy = False
+                    self.color = self.disconnected_color
+                    _color_change = True
+                elif "moving" in _lower:
+                    self.busy = True
+                    self.color = self.moving_color
+                    _color_change = True
+                elif "busy" in _lower:
+                    self.busy = True
+                    self.color = self.busy_color
+                    _color_change = True
+                elif "plotting" in _lower:
+                    self.color = self.plotting_color
+                    _color_change = True
+                elif "connected" in _lower or "idle" in _lower:
+                    self.busy = False
+                    self.color = self.idle_color
+                    _color_change = True
+                if _color_change:
+                    self.button_device_connect.SetBackgroundColour(self.color)
         self.context.signal("ruida_pa_controller_update")
 
     @signal_listener("ruida_pa_controller_update")
-    def update_text_gui(self, origin, *args):
-        text = "\n".join(self.buffer)
-        self.text_status.SetValue(text)
+    def update_text_gui(self, origin):
+        with self._buffer_lock:
+            buffer = self._buffer
+            self._buffer = ""
+        self.text_usb_log.AppendText(buffer)
+
+    def set_button_connected(self):
+        self.button_device_connect.SetBackgroundColour(self.color)
+        self.button_device_connect.SetBitmap(
+            icons8_connected.GetBitmap(
+                use_theme=False, resize=get_default_icon_size(self.context)
+            )
+        )
+        self.button_device_connect.Enable()
+
+    def set_button_disconnected(self):
+        self.color = self.disconnected_color
+        self.button_device_connect.SetBackgroundColour(self.color)
+        self.button_device_connect.SetBitmap(
+            icons8_disconnected.GetBitmap(
+                use_theme=False, resize=get_default_icon_size(self.context)
+            )
+        )
+        self.button_device_connect.Enable()
+
+    @signal_listener("pipe;usb_status")
+    def on_usb_update(self, origin=None, status=None):
+        if origin != self.service.path:
+            return
+        if status == self.last_usb_status:
+            return
+        self.last_usb_status = status
+        if status is None:
+            status = "Unknown"
+        if "Connected" in status:
+            _s = "Connected"
+        else:
+            _s = status
+        if _s in ["Connecting", "Connected", "Disconnected"]:
+            self.button_device_connect.SetLabel(_(status))
+        if self.service.connected:
+            self.set_button_connected()
+        else:
+            self.set_button_disconnected()
+
+    def on_button_start_connection(self, event):  # wxGlade: Controller.<event_handler>
+        connected = self.service.connected
+        if self.service.is_connecting:
+            self.service.abort_connect()
+            self.service.set_disable_connect(False)
+            return
+
+        if connected:
+            self.service("disconnect\n")
+            self.service.abort_connect()
+            self.service.set_disable_connect(False)
+        else:
+            self.service.set_disable_connect(False)
+            self.service.abort_connect()
+            self.service("connect\n")
 
     def pane_show(self):
-        name = self.service.safe_label
-        self.context.channel(f"{name}/events").watch(self.update_text)
-        self.button_connect.SetLabel(
-            _("Disconnect") if self.service.connected else _("Connect")
-        )
+        self._name = self.service.safe_label
+        self.context.channel(f"{self._name}/events").watch(self.update_text)
+
+        connected = self.service.connected
+        if connected:
+            self.set_button_connected()
+        else:
+            self.set_button_disconnected()
 
     def pane_hide(self):
-        name = self.service.safe_label
-        self.context.channel(f"{name}/events").unwatch(self.update_text)
+        self.context.channel(f"{self._name}/events").unwatch(self.update_text)
 
 
 class RuidaPaController(MWindow):
     def __init__(self, *args, **kwds):
         super().__init__(499, 170, *args, **kwds)
-        self.service = self.context.device
-        self.SetTitle(_("RuidaPA Controller"))
         self.panel = RuidaPaControllerPanel(self, wx.ID_ANY, context=self.context)
         self.sizer.Add(self.panel, 1, wx.EXPAND, 0)
         self.add_module_delegate(self.panel)
+        self.SetTitle(_("RuidaPA Controller"))
+        _icon = wx.NullIcon
+        _icon.CopyFromBitmap(icons8_connected.GetBitmap())
+        self.SetIcon(_icon)
         self.Layout()
         self.restore_aspect()
 

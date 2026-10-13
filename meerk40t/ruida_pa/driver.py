@@ -232,6 +232,7 @@ class RuidaPADriver(Parameters):
         self.queue.clear()
         self._set_queue_status(0, 0)
         self.adapter.write_tail()
+        self.events("Idle")
         self._signal_updates = False
         return False
 

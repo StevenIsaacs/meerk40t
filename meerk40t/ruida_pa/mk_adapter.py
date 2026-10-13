@@ -98,21 +98,7 @@ class MKAdapter:
         # Auto: the driver prefers USB, then falls back to the network host.
         return host, usb, protocol
 
-    def open(self):
-        """
-        (Re)create the underlying driver and open the connection.
-        """
-        self.close()
-        self._driver = self._make_driver()
-        self._driver.register_status_listener(self._on_status)
-        self._driver.register_error_listener(self._on_error)
-        self._driver.register_reply_listener(self._on_reply)
-        return self.start()
-
-    def start(self):
-        """Start the connection using current service settings."""
-        if self._driver is None:
-            self.open()
+    def _driver_start(self):
         host, usb, protocol = self.resolve_start_args()
         return self._driver.start(
             network_host=host,
@@ -120,6 +106,28 @@ class MKAdapter:
             magic=self.service.magic,
             protocol=protocol,
         )
+
+    def open(self):
+        """
+        (Re)create the underlying driver and open the connection.
+
+        The driver must be started before its listeners are registered: the
+        RPC server only accepts listener registration once its session is
+        active ("No active driver. Call start() first.").
+        """
+        self.close()
+        self._driver = self._make_driver()
+        result = self._driver_start()
+        self._driver.register_status_listener(self._on_status)
+        self._driver.register_error_listener(self._on_error)
+        self._driver.register_reply_listener(self._on_reply)
+        return result
+
+    def start(self):
+        """Start the connection using current service settings."""
+        if self._driver is None:
+            return self.open()
+        return self._driver_start()
 
     def stop(self):
         if self._driver is not None:
@@ -153,6 +161,11 @@ class MKAdapter:
         channel = self.service.channel(f"{self.service.safe_label}/events")
         channel(message)
 
+    def _status_out(self, message):
+        """Emit a human-readable status word to the controller events channel."""
+        channel = self.service.channel(f"{self.service.safe_label}/events")
+        channel(message)
+
     def _on_reply(self, replies):
         # Replies for addresses the driver handles itself are already decoded
         # into status; nothing to forward by default.
@@ -175,19 +188,24 @@ class MKAdapter:
         if name in ("CONNECTED", "RECONNECTED"):
             self.connected = True
             service.connected = True
+            self._status_out("Connected")
             service.signal("pipe;usb_status", "Connected")
         elif name in ("DISCONNECTED", "TERMINATED"):
             self.connected = False
             service.connected = False
+            self._status_out("Disconnected")
             service.signal("pipe;usb_status", "Disconnected")
         elif name == "TRANSPORT_UDP":
             self.transport_type = "udp"
+            self._status_out("Connected")
             service.signal("pipe;usb_status", "Connected")
         elif name == "TRANSPORT_TCP":
             self.transport_type = "tcp"
+            self._status_out("Connected")
             service.signal("pipe;usb_status", "Connected")
         elif name == "TRANSPORT_USB":
             self.transport_type = "usb"
+            self._status_out("Connected")
             service.signal("pipe;usb_status", "Connected")
 
     def _handle_status_dict(self, status):
@@ -215,7 +233,10 @@ class MKAdapter:
             service.bedheight = Length(f"{self.bed_y:.1f}mm")
             service.signal("bedheight", service.bedheight)
         if "MACHINE_STATUS_JOB_RUNNING" in status:
-            self.job_running = bool(status["MACHINE_STATUS_JOB_RUNNING"])
+            running = bool(status["MACHINE_STATUS_JOB_RUNNING"])
+            if running != self.job_running:
+                self._status_out("Busy" if running else "Idle")
+            self.job_running = running
         if "CARD_ID" in status:
             self.card_id = status["CARD_ID"][1]
             service.signal("pipe;usb_status", "Connected")

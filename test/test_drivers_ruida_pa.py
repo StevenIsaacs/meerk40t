@@ -6,6 +6,23 @@ import unittest
 from test import bootstrap
 
 
+class FakeChannel:
+    """Records messages written to a named channel on a FakeService."""
+
+    def __init__(self, service, name):
+        self.service = service
+        self.name = name
+
+    def __call__(self, message=None):
+        self.service.messages.append((self.name, message))
+
+    def watch(self, fn):
+        pass
+
+    def unwatch(self, fn):
+        pass
+
+
 class FakeService:
     """Minimal stand-in for a RuidaPADevice for adapter unit tests."""
 
@@ -26,6 +43,15 @@ class FakeService:
     safe_label = "ruida_pa"
     connected = False
 
+    def __init__(self):
+        self.messages = []
+
+    def channel(self, name):
+        return FakeChannel(self, name)
+
+    def signal(self, *args, **kwargs):
+        pass
+
 
 class FakeCut:
     """A minimal cut object exposing start/end/settings."""
@@ -34,6 +60,46 @@ class FakeCut:
         self.start = (0.0, 0.0)
         self.end = (x, y)
         self.settings = settings or {}
+
+
+class StrictDriver:
+    """Driver enforcing the ruida-pa server contract: start before listeners."""
+
+    def __init__(self):
+        self.started = False
+        self.order = []
+
+    def start(self, **kwargs):
+        self.started = True
+        self.order.append("start")
+        return True
+
+    def register_status_listener(self, listener):
+        assert self.started, "No active driver. Call start() first."
+        self.order.append("reg_status")
+
+    def register_error_listener(self, listener):
+        assert self.started, "No active driver. Call start() first."
+        self.order.append("reg_error")
+
+    def register_reply_listener(self, listener):
+        assert self.started, "No active driver. Call start() first."
+        self.order.append("reg_reply")
+
+    def unregister_status_listener(self, listener):
+        pass
+
+    def unregister_error_listener(self, listener):
+        pass
+
+    def unregister_reply_listener(self, listener):
+        pass
+
+    def stop(self):
+        pass
+
+    def close(self):
+        pass
 
 
 class TestMockAdapter(unittest.TestCase):
@@ -93,6 +159,33 @@ class TestMockAdapter(unittest.TestCase):
             any(line.startswith("set_power_scaling_enabled") for line in transcript)
         )
         self.assertEqual(self.adapter._driver.power_floor, 8.0)
+
+    def test_10_start_before_register(self):
+        from meerk40t.ruida_pa.mk_adapter import MKAdapter
+
+        self.service.driver_mode = "rpc"
+        adapter = MKAdapter(self.service)
+        strict = StrictDriver()
+        adapter._make_driver = lambda: strict
+        result = adapter.start()
+        self.assertTrue(result)
+        self.assertEqual(
+            strict.order, ["start", "reg_status", "reg_error", "reg_reply"]
+        )
+
+    def test_11_status_words_emitted(self):
+        self.adapter._handle_status_event("CONNECTED")
+        self.assertTrue(self.service.connected)
+        self.adapter._handle_status_event("DISCONNECTED")
+        self.assertFalse(self.service.connected)
+        self.adapter._handle_status_dict({"MACHINE_STATUS_JOB_RUNNING": True})
+        self.adapter._handle_status_dict({"MACHINE_STATUS_JOB_RUNNING": True})
+        self.adapter._handle_status_dict({"MACHINE_STATUS_JOB_RUNNING": False})
+        recorded = [m[1] for m in self.service.messages]
+        self.assertIn("Connected", recorded)
+        self.assertIn("Disconnected", recorded)
+        self.assertEqual(recorded.count("Busy"), 1)
+        self.assertEqual(recorded.count("Idle"), 1)
 
     def test_06_dwell_and_add_delay(self):
         self.adapter.write_header([])
@@ -290,6 +383,133 @@ class TestRpcSupport(unittest.TestCase):
                 any("Connection failed" in str(m) for m in messages),
                 messages,
             )
+        finally:
+            kernel()
+
+    @staticmethod
+    def _ruida_pa_plugin():
+        from meerk40t.ruida_pa import plugin as ruida_pa_driver
+
+        return ruida_pa_driver.plugin
+
+
+class TestControllerPanel(unittest.TestCase):
+    """RuidaPA Controller panel color/label/icon driven by ruida-pa status words."""
+
+    def test_controller_state_updates(self):
+        import wx
+
+        from meerk40t.ruida_pa.gui.ruidapacontroller import RuidaPaControllerPanel
+
+        kernel = bootstrap.bootstrap(plugins=[self._ruida_pa_plugin()])
+        try:
+            kernel.console("service device start -i ruida_pa 0\n")
+            device = kernel.root.device
+            app = wx.App(False)
+            frame = wx.Frame(None)
+
+            def bg_hex():
+                return (
+                    panel.button_device_connect.GetBackgroundColour()
+                    .GetAsString(wx.C2S_HTML_SYNTAX)
+                    .upper()
+                )
+
+            panel = RuidaPaControllerPanel(frame, wx.ID_ANY, context=device)
+            self.assertEqual(panel.color, panel.idle_color)
+
+            panel.set_button_disconnected()
+            self.assertEqual(bg_hex(), panel.disconnected_color.upper())
+
+            device.driver.adapter.connected = True
+            panel.update_text("Connected")
+            self.assertEqual(bg_hex(), panel.idle_color.upper())
+            panel.on_usb_update(device.path, "Connected")
+            self.assertEqual(panel.button_device_connect.GetLabel(), "Connected")
+            self.assertEqual(bg_hex(), panel.idle_color.upper())
+
+            panel.update_text("Busy")
+            self.assertTrue(panel.busy)
+            self.assertEqual(bg_hex(), panel.busy_color.upper())
+            panel.update_text("Plotting")
+            self.assertEqual(bg_hex(), panel.plotting_color.upper())
+            panel.update_text("Idle")
+            self.assertFalse(panel.busy)
+            self.assertEqual(bg_hex(), panel.idle_color.upper())
+            panel.update_text_gui(None)
+            log = panel.text_usb_log.GetValue()
+            self.assertIn("Busy", log)
+            self.assertIn("Idle", log)
+
+            device.driver.adapter.connected = False
+            panel.on_usb_update(device.path, "Disconnected")
+            self.assertEqual(panel.button_device_connect.GetLabel(), "Disconnected")
+            self.assertEqual(bg_hex(), panel.disconnected_color.upper())
+
+            frame.Destroy()
+            app.Destroy()
+        finally:
+            kernel()
+
+    @staticmethod
+    def _ruida_pa_plugin():
+        from meerk40t.ruida_pa import plugin as ruida_pa_driver
+
+        return ruida_pa_driver.plugin
+
+
+class TestDriverJobIdle(unittest.TestCase):
+    """RuidaPADriver reports Idle when a plot job finishes."""
+
+    def test_plot_start_emits_idle(self):
+        from meerk40t.core.cutcode.linecut import LineCut
+
+        kernel = bootstrap.bootstrap(plugins=[self._ruida_pa_plugin()])
+        try:
+            kernel.console("service device start -i ruida_pa 0\n")
+            device = kernel.root.device
+
+            class StubAdapter:
+                def __init__(self):
+                    self.tails = 0
+
+                def write_header(self, queue):
+                    pass
+
+                def write_settings(self, settings, raster=False):
+                    pass
+
+                def write_tail(self):
+                    self.tails += 1
+
+                def power_range(self, *a):
+                    pass
+
+                def cut_speed(self, *a):
+                    pass
+
+                def mark(self, *a):
+                    pass
+
+                def jump(self, *a):
+                    pass
+
+                def dwell(self, *a):
+                    pass
+
+            stub = StubAdapter()
+            device.driver.adapter = stub
+            events = []
+            device.channel(f"{device.safe_label}/events").watch(events.append)
+            cut = LineCut(
+                (0, 0),
+                (10000, 10000),
+                settings={"power": 700.0, "speed": 40.0, "color": "#ff0000"},
+            )
+            device.driver.queue.append(cut)
+            device.driver.plot_start()
+            self.assertEqual(stub.tails, 1)
+            self.assertTrue(events and events[-1].endswith("Idle"), events)
         finally:
             kernel()
 
