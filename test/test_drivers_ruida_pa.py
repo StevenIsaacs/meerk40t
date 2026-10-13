@@ -186,6 +186,47 @@ class TestMockAdapter(unittest.TestCase):
         self.assertIsNone(adapter._driver)
         self.assertFalse(adapter.connected)
 
+    def test_10_open_rebuilds_driver(self):
+        from meerk40t.ruida_pa.mk_adapter import MKAdapter
+
+        adapter = MKAdapter(self.service)
+        drivers = []
+
+        def factory():
+            strict = StrictDriver()
+            drivers.append(strict)
+            return strict
+
+        adapter._make_driver = factory
+        adapter.open()
+        first = adapter._driver
+        adapter.open()
+        second = adapter._driver
+        self.assertIsNot(first, second)
+        self.assertEqual(len(drivers), 2)
+        self.assertIn("stop", first.order)
+        self.assertIn("close", first.order)
+        self.assertEqual(second.order[-1], "start")
+
+    def test_10_start_reuses_existing_driver(self):
+        from meerk40t.ruida_pa.mk_adapter import MKAdapter
+
+        adapter = MKAdapter(self.service)
+        drivers = []
+
+        def factory():
+            strict = StrictDriver()
+            drivers.append(strict)
+            return strict
+
+        adapter._make_driver = factory
+        adapter.open()
+        first = adapter._driver
+        adapter.start()
+        self.assertIs(adapter._driver, first)
+        self.assertEqual(len(drivers), 1)
+        self.assertEqual(first.order.count("start"), 2)
+
     def test_11_status_words_emitted(self):
         self.adapter._handle_status_event("CONNECTED")
         self.assertTrue(self.service.connected)
@@ -299,6 +340,64 @@ class TestDevice(unittest.TestCase):
             device = kernel.device
             self.assertIsNotNone(device)
             self.assertEqual(device.name, "RuidaPADevice")
+        finally:
+            kernel()
+
+    @staticmethod
+    def _ruida_pa_plugin():
+        from meerk40t.ruida_pa import plugin as ruida_pa_driver
+
+        return ruida_pa_driver.plugin
+
+
+class TestConnectionDriverLifecycle(unittest.TestCase):
+    """`reconnect` rebuilds the driver; `connect` reuses the existing one."""
+
+    def _boot(self):
+        kernel = bootstrap.bootstrap(plugins=[self._ruida_pa_plugin()])
+        kernel.console("service device start -i ruida_pa 0\n")
+        return kernel, kernel.device
+
+    def test_reconnect_rebuilds_driver(self):
+        kernel, device = self._boot()
+        try:
+            drivers = []
+
+            def factory():
+                strict = StrictDriver()
+                drivers.append(strict)
+                return strict
+
+            device.driver.adapter._make_driver = factory
+            device("reconnect\n")
+            first = device.driver.adapter._driver
+            device("reconnect\n")
+            second = device.driver.adapter._driver
+            self.assertIsNot(first, second)
+            self.assertEqual(len(drivers), 2)
+            self.assertIn("stop", first.order)
+            self.assertIn("close", first.order)
+        finally:
+            kernel()
+
+    def test_connect_reuses_driver(self):
+        kernel, device = self._boot()
+        try:
+            drivers = []
+
+            def factory():
+                strict = StrictDriver()
+                drivers.append(strict)
+                return strict
+
+            device.driver.adapter._make_driver = factory
+            device("connect\n")
+            first = device.driver.adapter._driver
+            device("disconnect\n")
+            device("connect\n")
+            self.assertIs(device.driver.adapter._driver, first)
+            self.assertEqual(len(drivers), 1)
+            self.assertEqual(first.order.count("start"), 2)
         finally:
             kernel()
 
@@ -531,6 +630,87 @@ class TestDriverJobIdle(unittest.TestCase):
         from meerk40t.ruida_pa import plugin as ruida_pa_driver
 
         return ruida_pa_driver.plugin
+
+
+class _ThemesStub:
+    def set_window_colors(self, window):
+        pass
+
+
+class FakeConnectionService:
+    """Minimal service for ConnectionPanel unit tests (records commands)."""
+
+    def __init__(self):
+        self.driver_mode = "direct"
+        self.connection_mode = "auto"
+        self.network_protocol = "udp"
+        self.network_host = ""
+        self.usb_device = ""
+        self.magic = 0x88
+        self.rpc_host = "127.0.0.1"
+        self.rpc_port = 18812
+        self.rpc_token = ""
+        self.rpc_timeout = 30.0
+        self.enable_power_scaling = False
+        self.power_floor = 8.0
+        self.themes = _ThemesStub()
+        self.commands = []
+
+    def __call__(self, data, **kwargs):
+        self.commands.append(data.strip())
+
+
+class TestConnectionPanelApply(unittest.TestCase):
+    """The Apply/Connect button rebuilds or dispatches disconnect+connect."""
+
+    def setUp(self):
+        import wx
+
+        from meerk40t.ruida_pa.gui.ruidapaconfig import ConnectionPanel
+
+        self.app = wx.App(False)
+        self.frame = wx.Frame(None)
+        self.service = FakeConnectionService()
+        self.panel = ConnectionPanel(self.frame, wx.ID_ANY, context=self.service)
+
+    def tearDown(self):
+        self.frame.Destroy()
+        self.app.Destroy()
+
+    def test_unchanged_uses_disconnect_connect(self):
+        self.panel.on_button_apply(None)
+        self.assertEqual(self.service.commands, ["disconnect", "connect"])
+
+    def test_driver_mode_change_uses_reconnect(self):
+        self.panel._set_driver_mode("rpc")
+        self.panel.on_button_apply(None)
+        self.assertEqual(self.service.commands, ["reconnect"])
+        self.assertEqual(self.service.driver_mode, "rpc")
+
+    def test_connection_mode_change_uses_reconnect(self):
+        self.panel._set_connection_mode("network")
+        self.panel.on_button_apply(None)
+        self.assertEqual(self.service.commands, ["reconnect"])
+        self.assertEqual(self.service.connection_mode, "network")
+
+    def test_protocol_change_uses_reconnect(self):
+        self.panel._set_protocol("tcp")
+        self.panel.on_button_apply(None)
+        self.assertEqual(self.service.commands, ["reconnect"])
+        self.assertEqual(self.service.network_protocol, "tcp")
+
+    def test_rpc_field_change_uses_reconnect(self):
+        self.panel.text_rpc_host.SetValue("10.0.0.5")
+        self.panel.on_button_apply(None)
+        self.assertEqual(self.service.commands, ["reconnect"])
+        self.assertEqual(self.service.rpc_host, "10.0.0.5")
+
+    def test_network_field_change_uses_disconnect_connect(self):
+        self.panel.text_host.SetValue("192.168.1.50")
+        self.panel.on_button_apply(None)
+        self.assertEqual(self.service.commands, ["disconnect", "connect"])
+        self.assertEqual(self.service.network_host, "192.168.1.50")
+        self.assertEqual(self.service.driver_mode, "direct")
 
 
 if __name__ == "__main__":

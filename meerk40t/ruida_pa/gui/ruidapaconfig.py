@@ -59,6 +59,13 @@ class ConnectionPanel(ScrolledPanel):
         super().__init__(*args, **kwds)
         self.service.themes.set_window_colors(self)
 
+        # Staged connection settings. Radio selections are held here until the
+        # Apply/Connect button commits them, so the service always reflects the
+        # last-applied state and mode changes can be detected.
+        self._pending_driver_mode = self.service.driver_mode
+        self._pending_connection_mode = self.service.connection_mode
+        self._pending_network_protocol = self.service.network_protocol
+
         main_sizer = wx.BoxSizer(wx.VERTICAL)
 
         # --- Driver mode ---
@@ -196,17 +203,17 @@ class ConnectionPanel(ScrolledPanel):
         self._update_rpc_visibility()
 
     def _set_driver_mode(self, mode):
-        self.service.driver_mode = mode
+        self._pending_driver_mode = mode
         self._update_rpc_visibility()
 
     def _set_connection_mode(self, mode):
-        self.service.connection_mode = mode
+        self._pending_connection_mode = mode
 
     def _set_protocol(self, protocol):
-        self.service.network_protocol = protocol
+        self._pending_network_protocol = protocol
 
     def _update_rpc_visibility(self):
-        rpc = self.service.driver_mode == "rpc"
+        rpc = self._pending_driver_mode == "rpc"
         for child in [
             self.text_rpc_host,
             self.text_rpc_port,
@@ -216,22 +223,55 @@ class ConnectionPanel(ScrolledPanel):
             child.Enable(rpc)
 
     def on_button_apply(self, event):
+        service = self.service
         try:
-            self.service.network_host = self.text_host.GetValue()
-            self.service.usb_device = self.text_usb.GetValue()
+            network_host = self.text_host.GetValue()
+            usb_device = self.text_usb.GetValue()
             magic_text = self.text_magic.GetValue().strip()
             if magic_text.lower().startswith("0x"):
                 magic_text = magic_text[2:]
-            self.service.magic = int(magic_text, 16)
-            self.service.rpc_host = self.text_rpc_host.GetValue()
-            self.service.rpc_port = int(self.text_rpc_port.GetValue())
-            self.service.rpc_token = self.text_rpc_token.GetValue()
-            self.service.rpc_timeout = float(self.text_rpc_timeout.GetValue())
-            self.service.enable_power_scaling = self.check_scaling.GetValue()
-            self.service.power_floor = float(self.text_floor.GetValue())
+            magic = int(magic_text, 16)
+            rpc_host = self.text_rpc_host.GetValue()
+            rpc_port = int(self.text_rpc_port.GetValue())
+            rpc_token = self.text_rpc_token.GetValue()
+            rpc_timeout = float(self.text_rpc_timeout.GetValue())
+            enable_power_scaling = self.check_scaling.GetValue()
+            power_floor = float(self.text_floor.GetValue())
         except ValueError:
             return
-        self.service("connect\n")
+
+        # A change to the driver mode, connection mode, network protocol, or
+        # any RPC server field requires the driver to be torn down and rebuilt
+        # (these are captured when the driver is constructed). Any other change
+        # only needs a disconnect + connect with the existing driver.
+        rebuild = (
+            self._pending_driver_mode != service.driver_mode
+            or self._pending_connection_mode != service.connection_mode
+            or self._pending_network_protocol != service.network_protocol
+            or rpc_host != service.rpc_host
+            or rpc_port != service.rpc_port
+            or rpc_token != service.rpc_token
+            or rpc_timeout != service.rpc_timeout
+        )
+
+        service.driver_mode = self._pending_driver_mode
+        service.connection_mode = self._pending_connection_mode
+        service.network_protocol = self._pending_network_protocol
+        service.network_host = network_host
+        service.usb_device = usb_device
+        service.magic = magic
+        service.rpc_host = rpc_host
+        service.rpc_port = rpc_port
+        service.rpc_token = rpc_token
+        service.rpc_timeout = rpc_timeout
+        service.enable_power_scaling = enable_power_scaling
+        service.power_floor = power_floor
+
+        if rebuild:
+            service("reconnect\n")
+        else:
+            service("disconnect\n")
+            service("connect\n")
 
     def pane_show(self):
         pass

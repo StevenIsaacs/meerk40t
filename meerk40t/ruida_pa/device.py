@@ -325,14 +325,15 @@ class RuidaPADevice(Service, Status):
             help=_("Connects to the device."),
         )
         def device_connect(command, channel, _, data=None, **kwargs):
-            try:
-                result = self.driver.adapter.start()
-            except Exception as e:
-                channel(_("Connection failed: {}").format(e))
-                self.update_connect_status()
-                return
-            channel(_("Connection started: {}").format("True" if result else "False"))
-            self.update_connect_status()
+            self._start_connection(channel)
+
+        @self.console_command(
+            "reconnect",
+            hidden=True,
+            help=_("Rebuilds the driver and connects to the device."),
+        )
+        def device_reconnect(command, channel, _, data=None, **kwargs):
+            self._start_connection(channel, rebuild=True)
 
         @self.console_command(
             "disconnect",
@@ -498,6 +499,24 @@ class RuidaPADevice(Service, Status):
             self.driver.adapter.open()
         except Exception:
             pass
+
+    def _start_connection(self, channel, rebuild=False):
+        """
+        Start the connection and report the result.
+
+        When ``rebuild`` is set the existing driver is torn down and a new one
+        is constructed before connecting; otherwise the existing driver is
+        reused when one exists (a new one is created only if none exists).
+        """
+        adapter = self.driver.adapter
+        try:
+            result = adapter.open() if rebuild else adapter.start()
+        except Exception as e:
+            channel(self._("Connection failed: {}").format(e))
+            self.update_connect_status()
+            return
+        channel(self._("Connection started: {}").format("True" if result else "False"))
+        self.update_connect_status()
 
     def update_connect_status(self):
         self.signal(
