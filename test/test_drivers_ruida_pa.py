@@ -75,31 +75,28 @@ class StrictDriver:
         return True
 
     def register_status_listener(self, listener):
-        assert self.started, "No active driver. Call start() first."
         self.order.append("reg_status")
 
     def register_error_listener(self, listener):
-        assert self.started, "No active driver. Call start() first."
         self.order.append("reg_error")
 
     def register_reply_listener(self, listener):
-        assert self.started, "No active driver. Call start() first."
         self.order.append("reg_reply")
 
     def unregister_status_listener(self, listener):
-        pass
+        self.order.append("unreg_status")
 
     def unregister_error_listener(self, listener):
-        pass
+        self.order.append("unreg_error")
 
     def unregister_reply_listener(self, listener):
-        pass
+        self.order.append("unreg_reply")
 
     def stop(self):
-        pass
+        self.order.append("stop")
 
     def close(self):
-        pass
+        self.order.append("close")
 
 
 class TestMockAdapter(unittest.TestCase):
@@ -160,7 +157,7 @@ class TestMockAdapter(unittest.TestCase):
         )
         self.assertEqual(self.adapter._driver.power_floor, 8.0)
 
-    def test_10_start_before_register(self):
+    def test_10_register_before_start(self):
         from meerk40t.ruida_pa.mk_adapter import MKAdapter
 
         self.service.driver_mode = "rpc"
@@ -170,8 +167,24 @@ class TestMockAdapter(unittest.TestCase):
         result = adapter.start()
         self.assertTrue(result)
         self.assertEqual(
-            strict.order, ["start", "reg_status", "reg_error", "reg_reply"]
+            strict.order, ["reg_status", "reg_error", "reg_reply", "start"]
         )
+
+    def test_10_close_stops_before_deregister(self):
+        from meerk40t.ruida_pa.mk_adapter import MKAdapter
+
+        adapter = MKAdapter(self.service)
+        strict = StrictDriver()
+        adapter._make_driver = lambda: strict
+        adapter.open()
+        strict.order = []
+        adapter.close()
+        self.assertEqual(
+            strict.order,
+            ["stop", "unreg_status", "unreg_error", "unreg_reply", "close"],
+        )
+        self.assertIsNone(adapter._driver)
+        self.assertFalse(adapter.connected)
 
     def test_11_status_words_emitted(self):
         self.adapter._handle_status_event("CONNECTED")

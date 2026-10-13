@@ -107,21 +107,27 @@ class MKAdapter:
             protocol=protocol,
         )
 
+    def _register_listeners(self):
+        self._driver.register_status_listener(self._on_status)
+        self._driver.register_error_listener(self._on_error)
+        self._driver.register_reply_listener(self._on_reply)
+
     def open(self):
         """
         (Re)create the underlying driver and open the connection.
 
-        The driver must be started before its listeners are registered: the
-        RPC server only accepts listener registration once its session is
-        active ("No active driver. Call start() first.").
+        Listeners are attached before the session is started (and are
+        detached only after the driver is stopped) so the lifecycle is
+        symmetric. Note: the ruida-pa RPC server currently rejects
+        pre-start registration ("No active driver. Call start() first.")
+        until the upstream change requested in
+        dev/prompts/ruida-pa-server-allow-prestart-listener-registration.md
+        lands.
         """
         self.close()
         self._driver = self._make_driver()
-        result = self._driver_start()
-        self._driver.register_status_listener(self._on_status)
-        self._driver.register_error_listener(self._on_error)
-        self._driver.register_reply_listener(self._on_reply)
-        return result
+        self._register_listeners()
+        return self._driver_start()
 
     def start(self):
         """Start the connection using current service settings."""
@@ -136,6 +142,10 @@ class MKAdapter:
 
     def close(self):
         if self._driver is not None:
+            try:
+                self._driver.stop()
+            except Exception:
+                pass
             try:
                 self._driver.unregister_status_listener(self._on_status)
             except Exception:
