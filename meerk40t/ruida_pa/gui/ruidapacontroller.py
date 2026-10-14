@@ -208,11 +208,12 @@ class RuidaPaControllerPanel(wx.ScrolledWindow):
         self._name = self.service.safe_label
         self.context.channel(f"{self._name}/events").watch(self.update_text)
 
-        connected = self.service.connected
-        if connected:
-            self.set_button_connected()
-        else:
-            self.set_button_disconnected()
+        # Seed the button label from the current adapter state immediately so
+        # the window does not briefly show the default wx label "Connection".
+        self.on_usb_update(
+            self.service.path,
+            self.service.driver.adapter.connected_status(),
+        )
 
     def pane_hide(self):
         self.context.channel(f"{self._name}/events").unwatch(self.update_text)
